@@ -45,9 +45,11 @@ def get_user_status(contact):
         return False, None, None, None
     if cell:
         row = worksheet.row_values(cell.row)
-        date = row[4] if len(row) > 4 else ""
-        course = row[5] if len(row) > 5 else ""
+        course = row[4] if len(row) > 4 else ""
+        date = row[5] if len(row) > 5 else ""
         link = row[6] if len(row) > 6 else ""
+        if not date.strip() and not link.strip():
+            return True, None, None, None
         return True, date.strip(), course.strip(), link.strip()
     return False, None, None, None
 
@@ -60,9 +62,9 @@ def finish_registration(chat_id):
         data.get('age', '').strip(),
         data.get('goal', '').strip(),
         data.get('contact', '').strip(),
-        "",  # дата занятия
         data.get('course', '').strip(),
-        ""   # ссылка
+        "",
+        ""
     ]
     try:
         worksheet.append_row(row)
@@ -74,7 +76,7 @@ def finish_registration(chat_id):
     pending[data['contact']] = {"chat_id": chat_id}
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📋 Записаться", "ℹ️ О преподавателе")
-    markup.row("💰 Цены и форматы", "⭐ Отзывы")
+    markup.row("💰 Цены и форматы")
     markup.row("📚 Доступные курсы", "📅 Мое занятие")
     bot.send_message(chat_id, "Спасибо! Ваша заявка принята. Ожидайте расписание своего урока.", reply_markup=markup)
     user_data.pop(chat_id, None)
@@ -86,8 +88,8 @@ def monitor_sheet():
                 try:
                     cell = worksheet.find(contact)
                     row = worksheet.row_values(cell.row)
-                    date = row[4] if len(row) > 4 else ""
-                    course = row[5] if len(row) > 5 else ""
+                    course = row[4] if len(row) > 4 else ""
+                    date = row[5] if len(row) > 5 else ""
                     link = row[6] if len(row) > 6 else ""
                 except:
                     continue
@@ -109,7 +111,7 @@ def start(message):
     chat_id = message.chat.id
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📋 Записаться", "ℹ️ О преподавателе")
-    markup.row("💰 Цены и форматы", "⭐ Отзывы")
+    markup.row("💰 Цены и форматы")
     markup.row("📚 Доступные курсы", "📅 Мое занятие")
     bot.send_message(chat_id, "Добро пожаловать! Выберите действие:", reply_markup=markup)
 
@@ -121,7 +123,10 @@ def handle_signup(message):
     if contact and contact in used_contacts:
         exists, date, course, link = get_user_status(contact)
         if exists:
-            bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}")
+            if not date and not link:
+                bot.send_message(chat_id, "📝 Вы уже оставляли заявку. Ожидайте назначения урока.")
+            else:
+                bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}")
             return
     user_data[chat_id] = {}
     bot.send_message(chat_id, "Введите имя ученика:", reply_markup=types.ReplyKeyboardRemove())
@@ -179,10 +184,14 @@ def handle_my_lesson(message):
         bot.send_message(chat_id, "Вы еще не регистрировались.")
         return
     exists, date, course, link = get_user_status(contact)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("📋 Записаться", "ℹ️ О преподавателе")
+    markup.row("💰 Цены и форматы")
+    markup.row("📚 Доступные курсы", "📅 Мое занятие")
     if exists and date:
-        bot.send_message(chat_id, f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка на занятие: {link}")
+        bot.send_message(chat_id, f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка на занятие: {link}", reply_markup=markup)
     else:
-        bot.send_message(chat_id, "Ваш урок еще не назначен. Пожалуйста, ожидайте.")
+        bot.send_message(chat_id, "Ваш урок еще не назначен. Пожалуйста, ожидайте.", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "ℹ️ О преподавателе")
 def about_teacher(message):
@@ -191,10 +200,6 @@ def about_teacher(message):
 @bot.message_handler(func=lambda m: m.text == "💰 Цены и форматы")
 def pricing(message):
     bot.send_message(message.chat.id, "💰 Индивидуально: 600₽\n👥 В группе: 400₽\n📍 Формат: Zoom / Discord")
-
-@bot.message_handler(func=lambda m: m.text == "⭐ Отзывы")
-def reviews(message):
-    bot.send_message(message.chat.id, "Пока нет отзывов. Вы можете быть первым!")
 
 @bot.message_handler(func=lambda m: m.text == "📚 Доступные курсы")
 def courses(message):

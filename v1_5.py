@@ -45,8 +45,8 @@ def get_user_status(contact):
         return False, None, None, None
     if cell:
         row = worksheet.row_values(cell.row)
-        date = row[4] if len(row) > 4 else ""
-        course = row[5] if len(row) > 5 else ""
+        course = row[4] if len(row) > 4 else ""
+        date = row[5] if len(row) > 5 else ""
         link = row[6] if len(row) > 6 else ""
         return True, date.strip(), course.strip(), link.strip()
     return False, None, None, None
@@ -60,8 +60,8 @@ def finish_registration(chat_id):
         data.get('age', '').strip(),
         data.get('goal', '').strip(),
         data.get('contact', '').strip(),
-        "",  # дата занятия
         data.get('course', '').strip(),
+        "",  # дата занятия
         ""   # ссылка
     ]
     try:
@@ -86,8 +86,8 @@ def monitor_sheet():
                 try:
                     cell = worksheet.find(contact)
                     row = worksheet.row_values(cell.row)
-                    date = row[4] if len(row) > 4 else ""
-                    course = row[5] if len(row) > 5 else ""
+                    course = row[4] if len(row) > 4 else ""
+                    date = row[5] if len(row) > 5 else ""
                     link = row[6] if len(row) > 6 else ""
                 except:
                     continue
@@ -179,10 +179,14 @@ def handle_my_lesson(message):
         bot.send_message(chat_id, "Вы еще не регистрировались.")
         return
     exists, date, course, link = get_user_status(contact)
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row("📋 Записаться", "ℹ️ О преподавателе")
+    markup.row("💰 Цены и форматы", "⭐ Отзывы")
+    markup.row("📚 Доступные курсы", "📅 Мое занятие")
     if exists and date:
-        bot.send_message(chat_id, f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка на занятие: {link}")
+        bot.send_message(chat_id, f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка на занятие: {link}", reply_markup=markup)
     else:
-        bot.send_message(chat_id, "Ваш урок еще не назначен. Пожалуйста, ожидайте.")
+        bot.send_message(chat_id, "Ваш урок еще не назначен. Пожалуйста, ожидайте.", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "ℹ️ О преподавателе")
 def about_teacher(message):
