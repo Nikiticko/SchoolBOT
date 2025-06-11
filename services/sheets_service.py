@@ -2,6 +2,8 @@
 from telebot import types
 from state.users import user_data, used_contacts, chat_contact_map, pending
 from utils.menu import get_main_menu
+from services.sheets_init import worksheet
+from handlers.admin import notify_admin_new_application
 
 import gspread
 import os
@@ -22,6 +24,7 @@ def get_user_row(contact):
         return None
 
 def finish_registration(bot, chat_id):
+    """Завершение регистрации и сохранение данных"""
     if chat_id not in user_data:
         return
 
@@ -33,22 +36,25 @@ def finish_registration(bot, chat_id):
         data.get('goal', '').strip(),                # Цель
         data.get('contact', '').strip(),             # Контакты
         data.get('course', '').strip(),              # Курс
-        "",                                           # Дата занятия
-        ""                                            # Ссылка на занятие
+        "",                                          # Дата занятия
+        ""                                           # Ссылка на занятие
     ]
 
     try:
         worksheet.append_row(row)
+        
+        # Сохраняем контакт и очищаем данные
+        contact = data['contact']
+        used_contacts.add(contact)
+        chat_contact_map[chat_id] = contact
+        pending[contact] = {"chat_id": chat_id}
+        del user_data[chat_id]
+
+        # Отправляем сообщение пользователю
+        markup = get_main_menu()
+        bot.send_message(chat_id, "✅ Ваша заявка принята. Ожидайте расписание своего урока.",
+                        reply_markup=markup)
+                        
     except Exception as e:
-        bot.send_message(chat_id, "Произошла ошибка при сохранении данных. Попробуйте позже.")
-        print("Ошибка при добавлении строки:", e)
-        return
-
-    contact = data['contact']
-    used_contacts.add(contact)
-    chat_contact_map[chat_id] = contact
-    pending[contact] = {"chat_id": chat_id}
-    del user_data[chat_id]
-
-    bot.send_message(chat_id, "✅ Ваша заявка принята. Ожидайте расписание своего урока.",
-                     reply_markup=get_main_menu())
+        print(f"Ошибка при сохранении заявки: {str(e)}")
+        bot.send_message(chat_id, "❌ Произошла ошибка при сохранении заявки. Пожалуйста, попробуйте позже.")

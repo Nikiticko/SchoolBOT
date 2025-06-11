@@ -2,12 +2,23 @@
 from telebot import types
 from utils.menu import get_main_menu
 from state.users import get_user_status
+from handlers.admin import is_admin
 
 def register(bot):
     @bot.message_handler(commands=["start"])
     def handle_start(message):
         chat_id = message.chat.id
-        bot.send_message(chat_id, "Добро пожаловать! Выберите действие:", reply_markup=get_main_menu())
+        
+        # Если пользователь - админ, показываем только кнопку списка заявок
+        if is_admin(chat_id):
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add("📋 Список заявок")
+            bot.send_message(chat_id, "Добро пожаловать в админ-панель!", reply_markup=markup)
+            return
+            
+        # Для обычных пользователей показываем стандартное меню
+        bot.send_message(chat_id, "Добро пожаловать! Выберите действие:", 
+                        reply_markup=get_main_menu(message.from_user.id))
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson(message):
