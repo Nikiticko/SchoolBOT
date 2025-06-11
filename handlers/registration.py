@@ -6,20 +6,22 @@ from state.users import user_data, chat_contact_map, used_contacts, pending, get
 from utils.menu import get_main_menu
 from services.sheets_service import worksheet, finish_registration
 
+def handle_existing_registration(bot, chat_id):
+    markup = get_main_menu()
+    bot.send_message(chat_id, "📝 Вы уже оставляли заявку. Ожидайте назначения урока.", reply_markup=markup)
+
 def register(bot):
     @bot.message_handler(func=lambda m: m.text == "📋 Записаться")
     def handle_signup(message):
         chat_id = message.chat.id
-        username = message.from_user.username
-        contact = f"@{username}" if username else None
-        if contact and contact in used_contacts:
-            exists, date, course, link = get_user_status(contact)
-            if exists:
-                if not date and not link:
-                    bot.send_message(chat_id, "📝 Вы уже оставляли заявку. Ожидайте назначения урока.")
-                else:
-                    bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}")
-                return
+        exists, date, course, link = get_user_status(chat_id)
+        if exists:
+            if not date and not link:
+                handle_existing_registration(bot, chat_id)
+            else:
+                markup = get_main_menu()
+                bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}", reply_markup=markup)
+            return
         user_data[chat_id] = {}
         bot.send_message(chat_id, "Введите имя ученика:", reply_markup=types.ReplyKeyboardRemove())
         bot.register_next_step_handler(message, process_name)
@@ -66,17 +68,15 @@ def register(bot):
             phone = '7' + phone[1:]
         contact = f"+{phone}"
 
-        # ✅ Проверка — уже существует?
-        if contact in used_contacts:
-            exists, date, course, link = get_user_status(contact)
-            if exists:
-                user_data.pop(chat_id, None)
-                if not date and not link:
-                    bot.send_message(chat_id, "📝 Вы уже оставляли заявку. Ожидайте назначения урока.")
-                else:
-                    bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}")
-                return
-
         user_data[chat_id]['contact'] = contact
-        finish_registration(bot, chat_id)
+        exists, date, course, link = get_user_status(chat_id)
+        if exists:
+            user_data.pop(chat_id, None)
+            if not date and not link:
+                handle_existing_registration(bot, chat_id)
+            else:
+                markup = get_main_menu()
+                bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}", reply_markup=markup)
+            return
 
+        finish_registration(bot, chat_id)

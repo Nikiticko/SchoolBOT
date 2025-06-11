@@ -25,17 +25,17 @@ try:
 except Exception as e:
     print("Error loading contacts from sheet:", e)
 
-def get_user_status(contact):
+def get_user_status(chat_id):
+    """По chat_id возвращает статус пользователя"""
     try:
-        cell = worksheet.find(contact)
-    except Exception:
-        return False, None, None, None
-    if cell:
+        cell = worksheet.find(str(chat_id))
         row = worksheet.row_values(cell.row)
-        course = row[4] if len(row) > 4 else ""
-        date = row[5] if len(row) > 5 else ""
-        link = row[6] if len(row) > 6 else ""
+        course = row[5] if len(row) > 5 else ""
+        date = row[6] if len(row) > 6 else ""
+        link = row[7] if len(row) > 7 else ""
         if not date.strip() and not link.strip():
             return True, None, None, None
         return True, date.strip(), course.strip(), link.strip()
-    return False, None, None, None
+    except:
+        return False, None, None, None
+
