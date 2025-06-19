@@ -1,4 +1,3 @@
-# === handlers/registration.py ===
 from telebot import types
 import re
 
@@ -17,9 +16,6 @@ def register(bot):
     @bot.message_handler(func=lambda m: m.text == "📋 Записаться")
     def handle_signup(message):
         chat_id = message.chat.id
-        print(f"[signup] ▶ Нажата кнопка 'Записаться' от chat_id={chat_id}")
-
-        # Повторная попытка — просто напоминание
         if user_data.get(chat_id, {}).get("in_progress"):
             bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
             return
@@ -33,7 +29,6 @@ def register(bot):
                 bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}", reply_markup=markup)
             return
 
-        # Новый пользователь — запускаем этап регистрации
         user_data[chat_id] = {
             "in_progress": True,
             "stage": "parent_name"
@@ -91,38 +86,17 @@ def register(bot):
         user_data[chat_id]["course"] = course
         user = message.from_user
         contact = f"@{user.username}" if user.username else None
+        user_data[chat_id]["contact"] = contact if contact else ""
 
-        # Проверка на повтор
-        if user_data[chat_id].get("notified"):
-            print(f"[course] ⏭ Уже уведомлён. Повтор игнорируется.")
-            return
-        user_data[chat_id]["notified"] = True
+        if contact and contact in used_contacts:
+            exists, date, course, link = get_user_status_by_contact(contact)
+            if exists:
+                handle_existing_registration(bot, chat_id)
+                return
 
-        if contact:
-            if contact in used_contacts:
-                exists, date, course, link = get_user_status_by_contact(contact)
-                if exists:
-                    handle_existing_registration(bot, chat_id)
-                    return
-
-            user_data[chat_id]["contact"] = contact
-            notify_admin_new_application(bot, user_data[chat_id])
-            finish_registration(bot, chat_id)
-
-        else:
-            user_data[chat_id]["stage"] = "phone"
-            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-            markup.add(types.KeyboardButton("📱 Отправить номер телефона", request_contact=True))
-            bot.send_message(
-                chat_id,
-                "Пожалуйста, отправьте номер телефона или введите его вручную в формате +79991234567:",
-                reply_markup=markup
-            )
-            bot.register_next_step_handler(message, process_phone)
-
-        if chat_id in user_data:
-            user_data[chat_id].pop("in_progress", None)
-
+        # ➕ Переход к подтверждению
+        user_data[chat_id]["stage"] = "confirmation"
+        send_confirmation(bot, chat_id)
 
 
     def process_phone(message):
@@ -148,9 +122,49 @@ def register(bot):
             if exists:
                 handle_existing_registration(bot, chat_id)
                 return
-   
+
         user_data[chat_id]["contact"] = contact
+        user_data[chat_id]["stage"] = "confirmation"
+        send_confirmation(bot, chat_id)
+
+
+    def send_confirmation(bot, chat_id):
+        data = user_data.get(chat_id)
+        if not data:
+            return
+
+        summary = (
+            f"Пожалуйста, проверьте введённые данные:\n\n"
+            f"👤 Имя родителя: {data.get('parent_name')}\n"
+            f"🧒 Имя ученика: {data.get('student_name')}\n"
+            f"🎂 Возраст: {data.get('age')}\n"
+            f"📘 Курс: {data.get('course')}\n"
+            f"📞 Контакт: {data.get('contact') or 'не указан'}\n\n"
+            "Подтвердите правильность данных:"
+        )
+
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_registration"),
+            types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_registration")
+        )
+
+        bot.send_message(chat_id, summary, reply_markup=markup)
+
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["confirm_registration", "cancel_registration"])
+    def handle_confirmation(call):
+        chat_id = call.message.chat.id
+
+        if call.data == "cancel_registration":
+            bot.send_message(chat_id, "❌ Заявка отменена. Вы можете начать заново.", reply_markup=get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+
+        if user_data.get(chat_id, {}).get("stage") != "confirmation":
+            bot.send_message(chat_id, "⚠️ Подтверждение недоступно. Попробуйте начать заново.")
+            return
+
         notify_admin_new_application(bot, user_data[chat_id])
         finish_registration(bot, chat_id)
-        if chat_id in user_data:
-            user_data[chat_id].pop("in_progress", None)
+        user_data.pop(chat_id, None)
