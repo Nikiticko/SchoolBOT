@@ -9,8 +9,11 @@ bot = TeleBot(API_TOKEN)
 
 # запуск потоков и команд
 start_monitoring(bot)
-commands.register(bot)
-registration.register(bot)
 admin.register(bot)  # Регистрация админ-обработчиков
+registration.register(bot)
+commands.register(bot)
 
-bot.infinity_polling()
+try:
+    bot.infinity_polling(timeout=30, long_polling_timeout=5)
+except Exception as e:
+    print(f"[ERROR] polling error: {e}")

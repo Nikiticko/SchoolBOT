@@ -8,23 +8,20 @@ def register(bot):
     @bot.message_handler(commands=["start"])
     def handle_start(message):
         chat_id = message.chat.id
-        
-        # Если пользователь - админ, показываем только кнопку списка заявок
+
         if is_admin(chat_id):
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            markup.add("📋 Список заявок")
-            bot.send_message(chat_id, "Добро пожаловать в админ-панель!", reply_markup=markup)
+            markup.row("📋 Список заявок", "📚 Редактировать курсы")  # ← Две кнопки на одной строке
+            bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=markup)
             return
-            
-        # Для обычных пользователей показываем стандартное меню
-        bot.send_message(chat_id, "Добро пожаловать! Выберите действие:", 
-                        reply_markup=get_main_menu(message.from_user.id))
+
+        # Обычный пользователь — стандартное меню
+        bot.send_message(chat_id, "Добро пожаловать! Выберите действие:",
+                         reply_markup=get_main_menu(chat_id))
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson(message):
         chat_id = message.chat.id
-
-        # 🆕 Проверка по user_id
         exists, date, course, link = get_user_status(str(chat_id))
         if exists and date:
             msg = f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
