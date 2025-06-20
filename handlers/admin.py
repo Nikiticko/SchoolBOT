@@ -1,7 +1,7 @@
 from telebot import types
 from config import ADMIN_ID
-from data.db import get_active_courses, get_pending_applications, clear_applications
-    
+from data.db import get_pending_applications, clear_applications
+
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)
 
@@ -26,13 +26,6 @@ def register(bot):
         markup.row("📋 Список заявок", "📚 Редактировать курсы")
         bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=markup)
 
-    @bot.message_handler(commands=["start"])
-    def handle_start(message):
-        user_id = message.from_user.id
-        if is_admin(user_id):
-            show_admin_panel(message.chat.id)
-        else:
-            bot.send_message(message.chat.id, "👋 Добро пожаловать! Для записи нажмите кнопку в меню.")
 
     @bot.message_handler(commands=["ClearApplications"])
     def handle_clear_command(message):

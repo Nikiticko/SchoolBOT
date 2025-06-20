@@ -3,6 +3,8 @@ from telebot import types
 from utils.menu import get_main_menu
 from data.db import get_application_by_tg_id
 from handlers.admin import is_admin
+from data.db import get_active_courses
+
 
 def register(bot):  
     @bot.message_handler(commands=["start"])
@@ -12,12 +14,11 @@ def register(bot):
         if is_admin(chat_id):
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             markup.row("📋 Список заявок", "📚 Редактировать курсы")
+            markup.row("🧹 Очистить заявки")
             bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=markup)
-            return
+        else:
+            bot.send_message(chat_id, "👋 Добро пожаловать! Выберите действие:", reply_markup=get_main_menu(chat_id))
 
-        # Обычный пользователь — стандартное меню
-        bot.send_message(chat_id, "Добро пожаловать! Выберите действие:",
-                         reply_markup=get_main_menu(chat_id))
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson(message):
@@ -47,4 +48,30 @@ def register(bot):
 
     @bot.message_handler(func=lambda m: m.text == "📚 Доступные курсы")
     def handle_courses(message):
-        bot.send_message(message.chat.id, "📘 Python с нуля (10–14 лет)\n📗 Подготовка к ЕГЭ/ОГЭ\n📙 Проектное программирование")
+        courses = get_active_courses()
+        if not courses:
+            bot.send_message(message.chat.id, "Курсы временно недоступны.")
+            return
+
+        markup = types.InlineKeyboardMarkup()
+        for course in courses:
+            course_id, name, description, active = course
+            markup.add(types.InlineKeyboardButton(name, callback_data=f"course_info:{course_id}"))
+
+        bot.send_message(message.chat.id, "Выберите интересующий курс:", reply_markup=markup)
+    
+    
+    
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("course_info:"))
+    def show_course_info(call):
+        course_id = int(call.data.split(":")[1])
+        courses = get_active_courses()
+        course = next((c for c in courses if c[0] == course_id), None)
+
+        if course:
+            name = course[1]
+            description = course[2]
+            msg = f"📘 *{name}*\n\n📝 {description}"
+            bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=get_main_menu(call.message.chat.id))
+        else:
+            bot.send_message(call.message.chat.id, "⚠️ Курс не найден.", reply_markup=get_main_menu(call.message.chat.id))

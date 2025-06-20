@@ -5,6 +5,8 @@ from state.users import user_data
 from utils.menu import get_main_menu
 from handlers.admin import notify_admin_new_application
 from data.db import add_application, get_application_by_tg_id
+from data.db import get_active_courses
+
 
 def handle_existing_registration(bot, chat_id):
     markup = get_main_menu()
@@ -66,28 +68,43 @@ def register(bot):
 
         user_data[chat_id]["age"] = message.text.strip()
         user_data[chat_id]["stage"] = "course"
+
+        courses = get_active_courses()
+        if not courses:
+            bot.send_message(chat_id, "⚠️ Курсы временно недоступны.")
+            return
+
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        markup.add("Python")
+        for course in courses:
+            markup.add(course[1])  # course[1] — название
         bot.send_message(chat_id, "Выберите курс:", reply_markup=markup)
         bot.register_next_step_handler(message, process_course)
+
 
     def process_course(message):
         chat_id = message.chat.id
         if user_data.get(chat_id, {}).get("stage") != "course":
             return
 
-        course = message.text.strip()
-        if course.lower() != "python":
-            bot.send_message(chat_id, "Пожалуйста, выберите доступный курс, нажав на кнопку.")
+        selected = message.text.strip()
+        courses = get_active_courses()
+        course_names = [c[1] for c in courses]
+
+        if selected not in course_names:
+            bot.send_message(chat_id, "Пожалуйста, выберите курс из предложенного списка.")
             return bot.register_next_step_handler(message, process_course)
 
-        user_data[chat_id]["course"] = course
+        user_data[chat_id]["course"] = selected
+
+        # продолжение регистрации
         user = message.from_user
         contact = f"@{user.username}" if user.username else ""
         user_data[chat_id]["contact"] = contact
 
         user_data[chat_id]["stage"] = "confirmation"
         send_confirmation(bot, chat_id)
+
+
 
     def send_confirmation(bot, chat_id):
         data = user_data.get(chat_id)

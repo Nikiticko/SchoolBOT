@@ -83,6 +83,7 @@ def get_active_courses():
         cursor.execute("SELECT * FROM courses WHERE active = 1 ORDER BY id DESC")
         return cursor.fetchall()
 
+
 def get_all_courses():
     with get_connection() as conn:
         cursor = conn.cursor()
