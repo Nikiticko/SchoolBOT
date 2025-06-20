@@ -1,17 +1,17 @@
 # === handlers/commands.py ===
 from telebot import types
 from utils.menu import get_main_menu
-from state.users import get_user_status
+from data.db import get_application_by_tg_id
 from handlers.admin import is_admin
 
-def register(bot):
+def register(bot):  
     @bot.message_handler(commands=["start"])
     def handle_start(message):
         chat_id = message.chat.id
 
         if is_admin(chat_id):
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            markup.row("📋 Список заявок", "📚 Редактировать курсы")  # ← Две кнопки на одной строке
+            markup.row("📋 Список заявок", "📚 Редактировать курсы")
             bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=markup)
             return
 
@@ -22,11 +22,16 @@ def register(bot):
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson(message):
         chat_id = message.chat.id
-        exists, date, course, link = get_user_status(str(chat_id))
-        if exists and date:
-            msg = f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
-        elif exists and not date:
-            msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
+        app = get_application_by_tg_id(str(chat_id))
+
+        if app:
+            course = app[6]
+            date = app[7]
+            link = app[8]
+            if date and link:
+                msg = f"📅 Дата: {date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
+            else:
+                msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
         else:
             msg = "Вы ещё не регистрировались. Нажмите «📋 Записаться»."
 

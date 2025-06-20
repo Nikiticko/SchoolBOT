@@ -1,7 +1,7 @@
 from telebot import types
 from config import ADMIN_ID
-from data.db import get_courses, get_pending_applications
-
+from data.db import get_active_courses, get_pending_applications, clear_applications
+    
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)
 
@@ -33,6 +33,17 @@ def register(bot):
             show_admin_panel(message.chat.id)
         else:
             bot.send_message(message.chat.id, "👋 Добро пожаловать! Для записи нажмите кнопку в меню.")
+
+    @bot.message_handler(commands=["ClearApplications"])
+    def handle_clear_command(message):
+        if not is_admin(message.from_user.id):
+            return
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ Да, очистить", callback_data="confirm_clear"),
+            types.InlineKeyboardButton("❌ Нет", callback_data="cancel_clear")
+        )
+        bot.send_message(message.chat.id, "⚠️ Вы уверены, что хотите удалить все заявки?\nЭто действие необратимо.", reply_markup=markup)
 
     @bot.message_handler(func=lambda m: m.text == "📋 Список заявок" and is_admin(m.from_user.id))
     def handle_pending_applications(message):
@@ -76,3 +87,15 @@ def register(bot):
         markup.add("❄ Заморозить курс", "📝 Отредактировать курс")
         markup.add("🔙 Назад")
         bot.send_message(message.chat.id, "🎓 Меню редактирования курсов:", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["confirm_clear", "cancel_clear"])
+    def handle_clear_confirm(call):
+        chat_id = call.message.chat.id
+        if not is_admin(call.from_user.id):
+            return
+
+        if call.data == "confirm_clear":
+            clear_applications()
+            bot.send_message(chat_id, "✅ Все заявки успешно удалены.")
+        else:
+            bot.send_message(chat_id, "❌ Очистка отменена.")

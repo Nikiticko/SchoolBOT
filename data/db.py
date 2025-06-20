@@ -75,11 +75,18 @@ def update_application_lesson(app_id, lesson_date, lesson_link):
         conn.commit()
 
 # === КУРСЫ ===
+# === КУРСЫ ===
 
-def get_courses():
+def get_active_courses():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM courses WHERE active = 1 ORDER BY id DESC")
+        return cursor.fetchall()
+
+def get_all_courses():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM courses ORDER BY id DESC")
         return cursor.fetchall()
 
 def add_course(name, description):
@@ -91,6 +98,21 @@ def add_course(name, description):
         """, (name, description))
         conn.commit()
 
+def delete_course(course_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM courses WHERE id = ?", (course_id,))
+        conn.commit()
+
+def update_course(course_id, new_name, new_description):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE courses SET name = ?, description = ?
+            WHERE id = ?
+        """, (new_name, new_description, course_id))
+        conn.commit()
+
 def toggle_course_active(course_id):
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -99,4 +121,13 @@ def toggle_course_active(course_id):
             SET active = NOT active
             WHERE id = ?
         """, (course_id,))
+        conn.commit()
+
+
+
+
+def clear_applications():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM applications")
         conn.commit()
