@@ -132,3 +132,11 @@ def clear_applications():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM applications")
         conn.commit()
+
+
+
+def get_application_by_id(app_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
+        return cursor.fetchone()

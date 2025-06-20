@@ -1,6 +1,7 @@
 from telebot import types
 from config import ADMIN_ID
-from data.db import get_pending_applications, clear_applications
+from data.db import get_pending_applications, clear_applications, update_application_lesson
+from state.users import writing_ids
 
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)
@@ -24,8 +25,8 @@ def register(bot):
     def show_admin_panel(chat_id):
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.row("📋 Список заявок", "📚 Редактировать курсы")
+        markup.row("🧹 Очистить заявки")
         bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=markup)
-
 
     @bot.message_handler(commands=["ClearApplications"])
     def handle_clear_command(message):
@@ -46,32 +47,63 @@ def register(bot):
                 bot.send_message(message.chat.id, "✅ Нет заявок без назначенной даты")
                 return
 
-            response_parts = []
             for app in applications:
                 app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at = app
                 text = (
-                    f"🆔 ID: {app_id}\n"
+                    f"🆔 Заявка #{app_id}\n"
                     f"👤 Родитель: {parent_name}\n"
                     f"🧒 Ученик: {student_name}\n"
                     f"📞 Контакт: {contact or 'не указан'}\n"
                     f"🎂 Возраст: {age}\n"
                     f"📘 Курс: {course}\n"
-                    f"📅 Статус: {status}\n"
-                    f"🕒 Создано: {created_at}\n"
-                    "------------------------"
+                    f"🕒 Дата: не назначена"
                 )
-                response_parts.append(text)
-
-            response = "\n\n".join(response_parts)
-            if len(response) > 4000:
-                parts = [response[i:i+4000] for i in range(0, len(response), 4000)]
-                for part in parts:
-                    bot.send_message(message.chat.id, part)
-            else:
-                bot.send_message(message.chat.id, response)
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🕒 Назначить", callback_data=f"assign:{app_id}"))
+                bot.send_message(message.chat.id, text, reply_markup=markup)
 
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Ошибка при получении заявок: {str(e)}")
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("assign:"))
+    def handle_assign_callback(call):
+        app_id = int(call.data.split(":")[1])
+        writing_ids.add(call.from_user.id)
+        bot.send_message(call.message.chat.id, f"📅 Введите дату и время занятия для заявки #{app_id} (например: 21.06 18:00):")
+        bot.register_next_step_handler(call.message, lambda m: get_date(m, app_id))
+
+    def get_date(message, app_id):
+        if message.from_user.id not in writing_ids:
+            return
+        date_text = message.text.strip()
+        bot.send_message(message.chat.id, "🔗 Введите ссылку на урок (Zoom/Discord и т.п.):")
+        bot.register_next_step_handler(message, lambda m: get_link(m, app_id, date_text))
+
+    from data.db import get_application_by_id
+
+    def get_link(message, app_id, date_text):
+        if message.from_user.id not in writing_ids:
+            return
+
+        link = message.text.strip()
+        update_application_lesson(app_id, date_text, link)
+        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {date_text}\n🔗 {link}")
+
+        matched = get_application_by_id(app_id)
+        if matched:
+            tg_id = matched[1]
+            course = matched[6]
+            try:
+                bot.send_message(
+                    int(tg_id),
+                    f"📅 Ваш урок назначен!\n📘 Курс: {course}\n🕒 Время: {date_text}\n🔗 Ссылка: {link}"
+                )
+            except Exception as e:
+                print(f"[⚠️] Не удалось отправить уведомление ученику {tg_id}: {e}")
+
+        writing_ids.discard(message.from_user.id)
+
+
 
     @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
     def handle_course_menu(message):
