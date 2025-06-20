@@ -173,3 +173,39 @@ def cancel_assigned_lesson(app_id):
             WHERE id = ?
         """, (app_id,))
         conn.commit()
+
+
+def archive_application(app_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False  # <-- важно
+
+        cursor.execute("""
+            INSERT INTO archive (
+                tg_id, parent_name, student_name, age, contact, course,
+                lesson_date, lesson_link, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, row[1:])  # без ID
+
+        cursor.execute("DELETE FROM applications WHERE id = ?", (app_id,))
+        conn.commit()
+        return True
+
+
+def get_archive_count_by_tg_id(tg_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM archive WHERE tg_id = ?", (tg_id,))
+        return cursor.fetchone()[0]
+
+
+def clear_archive():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM archive")
+        conn.commit()

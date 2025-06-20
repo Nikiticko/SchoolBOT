@@ -9,6 +9,7 @@ from data.db import (
 )
 from state.users import writing_ids
 from handlers.admin import is_admin
+from data.db import archive_application
 
 def register_admin_actions(bot):
 
@@ -64,6 +65,9 @@ def register_admin_actions(bot):
         update_application_status(app_id, "Отменено")
         bot.edit_message_text("❌ Заявка отменена.", call.message.chat.id, call.message.message_id)
 
+
+
+
     @bot.message_handler(func=lambda m: m.text == "🚫 Отменить урок" and is_admin(m.from_user.id))
     def handle_cancel_lesson_request(message):
         apps = get_assigned_applications()
@@ -84,20 +88,30 @@ def register_admin_actions(bot):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data=f"cancel_lesson:{app_id}"))
             bot.send_message(message.chat.id, text, reply_markup=markup)
-
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel_lesson:"))
     def handle_cancel_lesson(call):
-        app_id = int(call.data.split(":")[1])
-        cancel_assigned_lesson(app_id)
-        bot.edit_message_text("🚫 Урок отменён.", call.message.chat.id, call.message.message_id)
+        print(f"[DEBUG] cancel_lesson нажата: {call.data}")
+        try:
+            app_id = int(call.data.split(":")[1])
+            success = archive_application(app_id)
 
-        app = get_application_by_id(app_id)
-        if app:
-            tg_id = app[1]
-            try:
-                bot.send_message(int(tg_id), "⚠️ Ваш урок был отменён администратором. Мы свяжемся с вами для переназначения.")
-            except Exception as e:
-                print(f"[❗] Ошибка уведомления: {e}")
+            if success:
+                bot.edit_message_text("🚫 Урок отменён и архивирован.", call.message.chat.id, call.message.message_id)
+            else:
+                bot.send_message(call.message.chat.id, "⚠️ Ошибка при отмене: заявка не найдена.")
+
+            app = get_application_by_id(app_id)
+            if app:
+                tg_id = app[1]
+                try:
+                    bot.send_message(int(tg_id), "⚠️ Ваш урок был отменён. Вы можете записаться снова.")
+                    print(f"[INFO] Уведомление отправлено: {tg_id}")
+                except Exception as e:
+                    print(f"[❗] Не удалось уведомить ученика {tg_id}: {e}")
+        except Exception as e:
+            print(f"[❌] Ошибка в handle_cancel_lesson: {e}")
+
+     
 
     @bot.message_handler(func=lambda m: m.text == "🕓 Перенести урок" and is_admin(m.from_user.id))
     def handle_reschedule_lesson(message):
@@ -154,3 +168,4 @@ def register_admin_actions(bot):
                 print(f"[❗] Не удалось уведомить ученика {tg_id}: {e}")
 
         writing_ids.discard(message.from_user.id)
+
