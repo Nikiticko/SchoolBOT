@@ -2,14 +2,17 @@
 from telebot import TeleBot
 from handlers import commands, registration, admin
 from services.monitor import start_monitoring
-
 from config import API_TOKEN
+from data.db import init_db
 
 bot = TeleBot(API_TOKEN)
 
+# инициализация базы данных
+init_db()
+
 # запуск потоков и команд
 start_monitoring(bot)
-admin.register(bot)  # Регистрация админ-обработчиков
+admin.register(bot)
 registration.register(bot)
 commands.register(bot)
 
