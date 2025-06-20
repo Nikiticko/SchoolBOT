@@ -140,3 +140,36 @@ def get_application_by_id(app_id):
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
         return cursor.fetchone()
+
+
+def update_application_status(app_id, new_status):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE applications
+            SET status = ?
+            WHERE id = ?
+        """, (new_status, app_id))
+        conn.commit()
+
+def get_assigned_applications():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM applications
+            WHERE status = 'Назначено'
+            ORDER BY created_at DESC
+        """)
+        return cursor.fetchall()
+
+def cancel_assigned_lesson(app_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE applications
+            SET lesson_date = NULL,
+                lesson_link = NULL,
+                status = 'Отменено'
+            WHERE id = ?
+        """, (app_id,))
+        conn.commit()

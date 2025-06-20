@@ -1,6 +1,7 @@
 from telebot import types
 from data.db import get_all_courses, add_course, delete_course, update_course, toggle_course_active
 from handlers.admin import is_admin
+from utils.menu import get_admin_menu
 
 def register_course_editor(bot):
     @bot.message_handler(func=lambda m: m.text == "➕ Добавить курс" and is_admin(m.from_user.id))
@@ -89,6 +90,4 @@ def register_course_editor(bot):
         bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}")
     @bot.message_handler(func=lambda m: m.text == "🔙 Назад" and is_admin(m.from_user.id))
     def handle_back_to_admin_panel(message):
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.row("📋 Список заявок", "📚 Редактировать курсы")
-        bot.send_message(message.chat.id, "🔙 Возврат в админ-панель", reply_markup=markup)
+        bot.send_message(message.chat.id, "🔙 Возврат в админ-панель", reply_markup=get_admin_menu())

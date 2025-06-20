@@ -4,18 +4,17 @@ from utils.menu import get_main_menu
 from data.db import get_application_by_tg_id
 from handlers.admin import is_admin
 from data.db import get_active_courses
+from utils.menu import get_main_menu, get_admin_menu
 
 
 def register(bot):  
+
     @bot.message_handler(commands=["start"])
     def handle_start(message):
         chat_id = message.chat.id
 
         if is_admin(chat_id):
-            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            markup.row("📋 Список заявок", "📚 Редактировать курсы")
-            markup.row("🧹 Очистить заявки")
-            bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=markup)
+            bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=get_admin_menu())
         else:
             bot.send_message(chat_id, "👋 Добро пожаловать! Выберите действие:", reply_markup=get_main_menu(chat_id))
 
