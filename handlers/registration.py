@@ -1,7 +1,7 @@
 from telebot import types
 
 from state.users import user_data
-from utils.menu import get_main_menu
+from utils.menu import get_main_menu, get_admin_menu, get_cancel_button, handle_cancel_action
 from handlers.admin import notify_admin_new_application, is_admin
 from data.db import (
     add_application,
@@ -10,7 +10,7 @@ from data.db import (
     get_archive_count_by_tg_id,
     format_date_for_display
 )
-from utils.menu import get_admin_menu
+from utils.logger import log_user_action, log_error
 
 
 def handle_existing_registration(bot, chat_id):
@@ -55,34 +55,55 @@ def register(bot, logger):
                 "in_progress": True,
                 "stage": "parent_name"
             }
-            bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=types.ReplyKeyboardRemove())
+            bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
             bot.register_next_step_handler(message, process_parent_name)
             logger.info(f"User {chat_id} started registration")
         except Exception as e:
-            logger.error(f"Error in handle_signup: {e}")
+            log_error(logger, e, f"Error in handle_signup for user {message.chat.id}")
 
     def process_parent_name(message):
         chat_id = message.chat.id
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            handle_cancel_action(bot, message, "регистрация", logger)
+            return
+            
         if user_data.get(chat_id, {}).get("stage") != "parent_name":
             return
+            
         user_data[chat_id]["parent_name"] = message.text.strip()
         user_data[chat_id]["stage"] = "student_name"
-        bot.send_message(chat_id, "Введите имя ученика:")
+        bot.send_message(chat_id, "Введите имя ученика:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(message, process_student_name)
 
     def process_student_name(message):
         chat_id = message.chat.id
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            handle_cancel_action(bot, message, "регистрация", logger)
+            return
+            
         if user_data.get(chat_id, {}).get("stage") != "student_name":
             return
+            
         user_data[chat_id]["student_name"] = message.text.strip()
         user_data[chat_id]["stage"] = "age"
-        bot.send_message(chat_id, "Введите возраст ученика:")
+        bot.send_message(chat_id, "Введите возраст ученика:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(message, process_age)
 
     def process_age(message):
         chat_id = message.chat.id
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            handle_cancel_action(bot, message, "регистрация", logger)
+            return
+            
         if user_data.get(chat_id, {}).get("stage") != "age":
             return
+            
         user_data[chat_id]["age"] = message.text.strip()
         user_data[chat_id]["stage"] = "course"
 
@@ -94,11 +115,18 @@ def register(bot, logger):
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         for course in courses:
             markup.add(course[1])
+        markup.add("🔙 Отмена")
         bot.send_message(chat_id, "Выберите курс:", reply_markup=markup)
         bot.register_next_step_handler(message, process_course)
 
     def process_course(message):
         chat_id = message.chat.id
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            handle_cancel_action(bot, message, "регистрация", logger)
+            return
+
         if user_data.get(chat_id, {}).get("stage") != "course":
             return
 
@@ -142,9 +170,7 @@ def register(bot, logger):
         chat_id = call.message.chat.id
 
         if call.data == "cancel_registration":
-            bot.send_message(chat_id, "❌ Заявка отменена. Вы можете начать заново.", reply_markup=get_main_menu())
-            user_data.pop(chat_id, None)
-            logger.info(f"User {chat_id} cancelled registration")
+            handle_cancel_action(bot, call.message, "регистрация", logger)
             return
 
         if user_data.get(chat_id, {}).get("stage") != "confirmation":

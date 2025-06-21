@@ -1,13 +1,13 @@
 from telebot import types
 from data.db import get_all_courses, add_course, delete_course, update_course, toggle_course_active
 from handlers.admin import is_admin
-from utils.menu import get_admin_menu
+from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
 
 def register_course_editor(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "➕ Добавить курс" and is_admin(m.from_user.id))
     def handle_add_course(message):
         try:
-            bot.send_message(message.chat.id, "Введите название нового курса:")
+            bot.send_message(message.chat.id, "Введите название нового курса:", reply_markup=get_cancel_button())
             bot.register_next_step_handler(message, lambda m: get_course_name(m, bot))
             logger.info(f"Admin {message.from_user.id} started adding new course")
         except Exception as e:
@@ -15,17 +15,27 @@ def register_course_editor(bot, logger):
 
     def get_course_name(message, bot):
         try:
+            # Проверяем отмену
+            if message.text == "🔙 Отмена":
+                handle_cancel_action(bot, message, "курс", logger)
+                return
+                
             name = message.text.strip()
-            bot.send_message(message.chat.id, "Введите описание курса:")
+            bot.send_message(message.chat.id, "Введите описание курса:", reply_markup=get_cancel_button())
             bot.register_next_step_handler(message, lambda m: save_new_course(m, bot, name))
         except Exception as e:
             logger.error(f"Error in get_course_name: {e}")
 
     def save_new_course(message, bot, name):
         try:
+            # Проверяем отмену
+            if message.text == "🔙 Отмена":
+                handle_cancel_action(bot, message, "курс", logger)
+                return
+                
             desc = message.text.strip()
             add_course(name, desc)
-            bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.")
+            bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=get_admin_menu())
             logger.info(f"Admin {message.from_user.id} added new course: {name}")
         except Exception as e:
             logger.error(f"Error in save_new_course: {e}")
@@ -107,7 +117,7 @@ def register_course_editor(bot, logger):
     def start_editing(call):
         try:
             course_id = int(call.data.split(":")[1])
-            bot.send_message(call.message.chat.id, "Введите новое название курса:")
+            bot.send_message(call.message.chat.id, "Введите новое название курса:", reply_markup=get_cancel_button())
             bot.register_next_step_handler(call.message, lambda m: get_new_name(m, course_id))
             logger.info(f"Admin {call.from_user.id} started editing course {course_id}")
         except Exception as e:
@@ -115,17 +125,27 @@ def register_course_editor(bot, logger):
 
     def get_new_name(message, course_id):
         try:
+            # Проверяем отмену
+            if message.text == "🔙 Отмена":
+                handle_cancel_action(bot, message, "курс", logger)
+                return
+                
             name = message.text.strip()
-            bot.send_message(message.chat.id, "Введите новое описание:")
+            bot.send_message(message.chat.id, "Введите новое описание:", reply_markup=get_cancel_button())
             bot.register_next_step_handler(message, lambda m: apply_edit(m, course_id, name))
         except Exception as e:
             logger.error(f"Error in get_new_name: {e}")
 
     def apply_edit(message, course_id, name):
         try:
+            # Проверяем отмену
+            if message.text == "🔙 Отмена":
+                handle_cancel_action(bot, message, "курс", logger)
+                return
+                
             desc = message.text.strip()
             update_course(course_id, name, desc)
-            bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}")
+            bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=get_admin_menu())
             logger.info(f"Admin {message.from_user.id} updated course {course_id} to: {name}")
         except Exception as e:
             logger.error(f"Error in apply_edit: {e}")

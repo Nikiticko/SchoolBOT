@@ -10,6 +10,7 @@ from data.db import (
 )
 from state.users import writing_ids
 from data.db import clear_archive
+from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
 
 
 def is_admin(user_id):
@@ -125,11 +126,17 @@ def register(bot, logger):
     def handle_assign_callback(call):
         app_id = int(call.data.split(":")[1])
         writing_ids.add(call.from_user.id)
-        bot.send_message(call.message.chat.id, f"📅 Введите дату и время урока для заявки #{app_id} (например: 22.06 17:00):")
+        bot.send_message(call.message.chat.id, f"📅 Введите дату и время урока для заявки #{app_id} (например: 22.06 17:00):", reply_markup=get_cancel_button())
         bot.register_next_step_handler(call.message, lambda m: get_link(m, app_id))
 
     def get_link(message, app_id):
         if message.from_user.id not in writing_ids:
+            return
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            writing_ids.discard(message.from_user.id)
+            handle_cancel_action(bot, message, "урок", logger)
             return
         
         date_text = message.text.strip()
@@ -140,7 +147,8 @@ def register(bot, logger):
         if not is_valid:
             bot.send_message(
                 message.chat.id, 
-                f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:00):"
+                f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:00):",
+                reply_markup=get_cancel_button()
             )
             bot.register_next_step_handler(message, lambda m: get_link(m, app_id))
             return
@@ -150,11 +158,17 @@ def register(bot, logger):
         user_data['valid_date'] = result
         message._user_data = user_data
         
-        bot.send_message(message.chat.id, "🔗 Введите ссылку на урок:")
+        bot.send_message(message.chat.id, "🔗 Введите ссылку на урок:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(message, lambda m: finalize_lesson(m, app_id, date_text))
 
     def finalize_lesson(message, app_id, date_text):
         if message.from_user.id not in writing_ids:
+            return
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            writing_ids.discard(message.from_user.id)
+            handle_cancel_action(bot, message, "урок", logger)
             return
         
         link = message.text.strip()
@@ -172,7 +186,7 @@ def register(bot, logger):
             update_application_lesson(app_id, date_text, link)
             formatted_date = date_text
         
-        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {formatted_date}\n🔗 {link}")
+        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {formatted_date}\n🔗 {link}", reply_markup=get_admin_menu())
 
         app = get_application_by_id(app_id)
         if app:
@@ -183,10 +197,12 @@ def register(bot, logger):
                     int(tg_id),
                     f"📅 Вам назначен урок!\n📘 Курс: {course}\n🗓 Дата: {formatted_date}\n🔗 Ссылка: {link}"
                 )
+                logger.info(f"Lesson notification sent to user {tg_id}")
             except Exception as e:
-                print(f"[❗] Ошибка уведомления ученика {tg_id}: {e}")
+                logger.error(f"Failed to notify user {tg_id}: {e}")
 
         writing_ids.discard(message.from_user.id)
+        logger.info(f"Admin {message.from_user.id} assigned lesson for application {app_id}")
 
     @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
     def handle_course_menu(message):
