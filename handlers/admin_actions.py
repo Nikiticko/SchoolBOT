@@ -5,11 +5,13 @@ from data.db import (
     update_application_status,
     cancel_assigned_lesson,
     update_application_lesson,
-    get_application_by_id
+    get_application_by_id,
+    archive_application
 )
 from state.users import writing_ids
 from handlers.admin import is_admin
-from data.db import archive_application
+cancel_reasons_buffer = {}
+
 
 def register_admin_actions(bot):
 
@@ -62,10 +64,49 @@ def register_admin_actions(bot):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel:"))
     def handle_cancel_status(call):
         app_id = int(call.data.split(":")[1])
-        update_application_status(app_id, "Отменено")
-        bot.edit_message_text("❌ Заявка отменена.", call.message.chat.id, call.message.message_id)
+        cancel_reasons_buffer[call.from_user.id] = {
+            "app_id": app_id,
+            "chat_id": call.message.chat.id,
+            "msg_id": call.message.message_id
+        }
+        bot.send_message(call.message.chat.id, "❓ Укажите причину отмены заявки:")
 
+    @bot.message_handler(func=lambda m: m.from_user.id in cancel_reasons_buffer)
+    def receive_cancel_reason(message):
+        user_id = message.from_user.id
+        reason = message.text.strip()
+        info = cancel_reasons_buffer.pop(user_id)
 
+        app_id = info["app_id"]
+        chat_id = info["chat_id"]
+        msg_id = info["msg_id"]
+
+        try:
+            # Получаем данные заявки ДО архивирования
+            app = get_application_by_id(app_id)
+            if not app:
+                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+                return
+
+            success = archive_application(app_id, cancelled_by="admin", cancel_reason=reason, archived_status="Заявка отменена")
+
+            if success:
+                bot.edit_message_text("❌ Заявка отменена и архивирована.", chat_id, msg_id)
+                bot.send_message(chat_id, "✅ Причина отмены заявки сохранена.")
+
+                # Отправляем уведомление пользователю
+                tg_id = app[1]
+                try:
+                    bot.send_message(int(tg_id), "⚠️ Ваша заявка была отменена. Вы можете подать новую заявку.")
+                    print(f"[INFO] Уведомление отправлено: {tg_id}")
+                except Exception as e:
+                    print(f"[❗] Не удалось уведомить пользователя {tg_id}: {e}")
+            else:
+                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+        except Exception as e:
+            bot.send_message(chat_id, f"⚠️ Ошибка при отмене заявки: {e}")
+
+    lesson_cancel_buffer = {}  # Временно храним app_id для отмены урока
 
 
     @bot.message_handler(func=lambda m: m.text == "🚫 Отменить урок" and is_admin(m.from_user.id))
@@ -88,28 +129,58 @@ def register_admin_actions(bot):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data=f"cancel_lesson:{app_id}"))
             bot.send_message(message.chat.id, text, reply_markup=markup)
+
+
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel_lesson:"))
     def handle_cancel_lesson(call):
         print(f"[DEBUG] cancel_lesson нажата: {call.data}")
         try:
             app_id = int(call.data.split(":")[1])
-            success = archive_application(app_id)
+            lesson_cancel_buffer[call.from_user.id] = {
+                "app_id": app_id,
+                "chat_id": call.message.chat.id,
+                "msg_id": call.message.message_id
+            }
+            bot.send_message(call.message.chat.id, "❓ Укажите причину отмены урока:")
+        except Exception as e:
+            print(f"[❌] Ошибка в handle_cancel_lesson: {e}")
+
+
+    @bot.message_handler(func=lambda m: m.from_user.id in lesson_cancel_buffer)
+    def receive_lesson_cancel_reason(message):
+        user_id = message.from_user.id
+        reason = message.text.strip()
+        info = lesson_cancel_buffer.pop(user_id)
+
+        app_id = info["app_id"]
+        chat_id = info["chat_id"]
+        msg_id = info["msg_id"]
+
+        try:
+            # Получаем данные заявки ДО архивирования
+            app = get_application_by_id(app_id)
+            if not app:
+                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+                return
+
+            success = archive_application(app_id, cancelled_by="admin", cancel_reason=reason, archived_status="Урок отменён")
 
             if success:
-                bot.edit_message_text("🚫 Урок отменён и архивирован.", call.message.chat.id, call.message.message_id)
-            else:
-                bot.send_message(call.message.chat.id, "⚠️ Ошибка при отмене: заявка не найдена.")
+                bot.edit_message_text("🚫 Урок отменён и заявка архивирована.", chat_id, msg_id)
+                bot.send_message(chat_id, "✅ Причина отмены урока сохранена.")
 
-            app = get_application_by_id(app_id)
-            if app:
+                # Отправляем уведомление пользователю
                 tg_id = app[1]
                 try:
                     bot.send_message(int(tg_id), "⚠️ Ваш урок был отменён. Вы можете записаться снова.")
                     print(f"[INFO] Уведомление отправлено: {tg_id}")
                 except Exception as e:
                     print(f"[❗] Не удалось уведомить ученика {tg_id}: {e}")
+            else:
+                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
         except Exception as e:
-            print(f"[❌] Ошибка в handle_cancel_lesson: {e}")
+            bot.send_message(chat_id, f"⚠️ Ошибка при отмене урока: {e}")
+
 
      
 

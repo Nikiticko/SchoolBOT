@@ -4,7 +4,11 @@ from datetime import datetime
 DB_NAME = "data/database.db"
 
 def get_connection():
+    import os
+    path = os.path.abspath(DB_NAME)
+    print(f"🛠 Путь к базе, которую использует бот: {path}")
     return sqlite3.connect(DB_NAME)
+
 
 def init_db():
     with get_connection() as conn:
@@ -175,26 +179,47 @@ def cancel_assigned_lesson(app_id):
         conn.commit()
 
 
-def archive_application(app_id):
+def archive_application(app_id: int, cancelled_by="user", cancel_reason="", archived_status="Заявка отменена"):
     with get_connection() as conn:
         cursor = conn.cursor()
 
+        # Получаем заявку
         cursor.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
         row = cursor.fetchone()
         if not row:
-            return False  # <-- важно
+            print("[❌] archive_application: заявка не найдена")
+            return False
 
-        cursor.execute("""
-            INSERT INTO archive (
-                tg_id, parent_name, student_name, age, contact, course,
-                lesson_date, lesson_link, status, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, row[1:])  # без ID
+        # Вставляем в archive
+        try:
+            cursor.execute("""
+                INSERT INTO archive (
+                    tg_id, parent_name, student_name, age, contact, course,
+                    lesson_date, lesson_link, status, created_at,
+                    cancelled_by, cancel_reason
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                row[1], row[2], row[3], row[4], row[5], row[6],
+                row[7], row[8], archived_status, row[10],
+                cancelled_by, cancel_reason
+            ))
+        except Exception as e:
+            print("🔥 [FATAL] Ошибка при вставке в archive:", e)
+            print("🔥 Параметры:", (
+                row[1], row[2], row[3], row[4], row[5], row[6],
+                row[7], row[8], archived_status, row[10],
+                cancelled_by, cancel_reason
+            ))
+            raise
 
+        # Удаляем из applications
         cursor.execute("DELETE FROM applications WHERE id = ?", (app_id,))
         conn.commit()
         return True
+
+
+
 
 
 def get_archive_count_by_tg_id(tg_id):
