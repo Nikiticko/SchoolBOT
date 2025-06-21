@@ -1,5 +1,4 @@
 from telebot import types
-import re
 
 from state.users import user_data
 from utils.menu import get_main_menu
@@ -19,44 +18,48 @@ def handle_existing_registration(bot, chat_id):
     bot.send_message(chat_id, "📝 Вы уже оставляли заявку. Ожидайте назначения урока.", reply_markup=markup)
 
 
-def register(bot):
+def register(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "📋 Записаться")
     def handle_signup(message):
-        chat_id = message.chat.id
+        try:
+            chat_id = message.chat.id
 
-        # 1. Архивный лимит
-        if get_archive_count_by_tg_id(str(chat_id)) >= 2:
-            bot.send_message(chat_id, "🚫 Вы уже записывались несколько раз. Пожалуйста, свяжитесь с администратором.")
-            return
+            # 1. Архивный лимит
+            if get_archive_count_by_tg_id(str(chat_id)) >= 2:
+                bot.send_message(chat_id, "🚫 Вы уже записывались несколько раз. Пожалуйста, свяжитесь с администратором.")
+                return
 
-        # 2. Наличие курсов
-        if not get_active_courses():
-            bot.send_message(chat_id, "⚠️ Сейчас запись недоступна. Курсы временно неактивны.")
-            return
+            # 2. Наличие курсов
+            if not get_active_courses():
+                bot.send_message(chat_id, "⚠️ Сейчас запись недоступна. Курсы временно неактивны.")
+                return
 
-        # 3. Текущая регистрация
-        if user_data.get(chat_id, {}).get("in_progress"):
-            bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
-            return
+            # 3. Текущая регистрация
+            if user_data.get(chat_id, {}).get("in_progress"):
+                bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
+                return
 
-        # 4. Уже есть активная заявка
-        app = get_application_by_tg_id(str(chat_id))
-        if app:
-            course, date, link = app[6], app[7], app[8]
-            if not date and not link:
-                handle_existing_registration(bot, chat_id)
-            else:
-                formatted_date = format_date_for_display(date)
-                bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
-            return
+            # 4. Уже есть активная заявка
+            app = get_application_by_tg_id(str(chat_id))
+            if app:
+                course, date, link = app[6], app[7], app[8]
+                if not date and not link:
+                    handle_existing_registration(bot, chat_id)
+                else:
+                    formatted_date = format_date_for_display(date)
+                    bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
+                return
 
-        # Начало регистрации
-        user_data[chat_id] = {
-            "in_progress": True,
-            "stage": "parent_name"
-        }
-        bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=types.ReplyKeyboardRemove())
-        bot.register_next_step_handler(message, process_parent_name)
+            # Начало регистрации
+            user_data[chat_id] = {
+                "in_progress": True,
+                "stage": "parent_name"
+            }
+            bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=types.ReplyKeyboardRemove())
+            bot.register_next_step_handler(message, process_parent_name)
+            logger.info(f"User {chat_id} started registration")
+        except Exception as e:
+            logger.error(f"Error in handle_signup: {e}")
 
     def process_parent_name(message):
         chat_id = message.chat.id
@@ -141,6 +144,7 @@ def register(bot):
         if call.data == "cancel_registration":
             bot.send_message(chat_id, "❌ Заявка отменена. Вы можете начать заново.", reply_markup=get_main_menu())
             user_data.pop(chat_id, None)
+            logger.info(f"User {chat_id} cancelled registration")
             return
 
         if user_data.get(chat_id, {}).get("stage") != "confirmation":
@@ -159,3 +163,4 @@ def register(bot):
         notify_admin_new_application(bot, data)
         bot.send_message(chat_id, "✅ Ваша заявка отправлена!", reply_markup=get_main_menu())
         user_data.pop(chat_id, None)
+        logger.info(f"User {chat_id} submitted application")

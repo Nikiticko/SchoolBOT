@@ -31,10 +31,11 @@ def notify_admin_new_application(bot, application_data):
         print(f"[❌] Ошибка при отправке уведомления админу: {str(e)}")
 
 
-def register(bot):
+def register(bot, logger):
     @bot.message_handler(commands=["ClearApplications"])
     def handle_clear_command(message):
         if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command ClearApplications")
             return
         markup = types.InlineKeyboardMarkup()
         markup.add(
@@ -42,12 +43,12 @@ def register(bot):
             types.InlineKeyboardButton("❌ Нет", callback_data="cancel_clear")
         )
         bot.send_message(message.chat.id, "⚠️ Вы уверены, что хотите удалить все заявки?\nЭто действие необратимо.", reply_markup=markup)
-    
-    
-    
+        logger.info(f"Admin {message.from_user.id} initiated ClearApplications")
+
     @bot.message_handler(commands=["ClearArchive"])
     def handle_clear_archive_command(message):
         if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command ClearArchive")
             return
 
         markup = types.InlineKeyboardMarkup()
@@ -60,29 +61,36 @@ def register(bot):
             "⚠️ Вы уверены, что хотите удалить все архивные заявки?\nЭто действие необратимо.",
             reply_markup=markup
         )
+        logger.info(f"Admin {message.from_user.id} initiated ClearArchive")
 
     @bot.callback_query_handler(func=lambda c: c.data in ["confirm_clear_archive", "cancel_clear_archive"])
     def handle_clear_archive_confirm(call):
         if not is_admin(call.from_user.id):
+            logger.warning(f"User {call.from_user.id} tried to confirm archive clear without admin rights")
             return
 
         if call.data == "confirm_clear_archive":
             clear_archive()
             bot.send_message(call.message.chat.id, "🧹 Архив успешно очищен.")
+            logger.info(f"Admin {call.from_user.id} cleared archive")
         else:
             bot.send_message(call.message.chat.id, "❌ Очистка архива отменена.")
+            logger.info(f"Admin {call.from_user.id} cancelled archive clear")
 
     @bot.callback_query_handler(func=lambda call: call.data in ["confirm_clear", "cancel_clear"])
     def handle_clear_confirm(call):
         chat_id = call.message.chat.id
         if not is_admin(call.from_user.id):
+            logger.warning(f"User {call.from_user.id} tried to confirm clear without admin rights")
             return
 
         if call.data == "confirm_clear":
             clear_applications()
             bot.send_message(chat_id, "✅ Все заявки успешно удалены.")
+            logger.info(f"Admin {call.from_user.id} cleared all applications")
         else:
             bot.send_message(chat_id, "❌ Очистка отменена.")
+            logger.info(f"Admin {call.from_user.id} cancelled clear")
 
     @bot.message_handler(func=lambda m: m.text == "📋 Список заявок" and is_admin(m.from_user.id))
     def handle_pending_applications(message):
@@ -108,9 +116,10 @@ def register(bot):
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("🕒 Назначить", callback_data=f"assign:{app_id}"))
                 bot.send_message(message.chat.id, text, reply_markup=markup)
-
+            logger.info(f"Admin {message.from_user.id} viewed pending applications")
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Ошибка при получении заявок: {str(e)}")
+            logger.error(f"Error in handle_pending_applications: {e}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("assign:"))
     def handle_assign_callback(call):
