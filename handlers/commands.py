@@ -1,7 +1,7 @@
 # === handlers/commands.py ===
 from telebot import types
 from utils.menu import get_main_menu
-from data.db import get_application_by_tg_id
+from data.db import get_application_by_tg_id, format_date_for_display
 from handlers.admin import is_admin
 from data.db import get_active_courses
 from utils.menu import get_main_menu, get_admin_menu
@@ -11,13 +11,41 @@ def register(bot):
 
     @bot.message_handler(commands=["start"])
     def handle_start(message):
-        chat_id = message.chat.id
+        markup = get_main_menu()
+        bot.send_message(
+            message.chat.id,
+            "👋 Добро пожаловать! Я бот для записи на занятия.\n\n"
+            "📋 Выберите действие:",
+            reply_markup=markup
+        )
 
-        if is_admin(chat_id):
-            bot.send_message(chat_id, "👋 Добро пожаловать в админ-панель!", reply_markup=get_admin_menu())
+    @bot.message_handler(commands=["my_lesson"])
+    def handle_my_lesson(message):
+        app = get_application_by_tg_id(message.from_user.id)
+        if not app:
+            bot.send_message(message.chat.id, "❌ У вас нет активной заявки.")
+            return
+
+        course, date, link = app[6], app[7], app[8]
+        formatted_date = format_date_for_display(date)
+        
+        if date and link:
+            msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
         else:
-            bot.send_message(chat_id, "👋 Добро пожаловать! Выберите действие:", reply_markup=get_main_menu(chat_id))
+            msg = "⏳ Ваша заявка находится в обработке."
 
+        bot.send_message(message.chat.id, msg)
+
+    @bot.message_handler(commands=["help"])
+    def handle_help(message):
+        help_text = (
+            "🤖 Доступные команды:\n\n"
+            "/start - Главное меню\n"
+            "/my_lesson - Информация о моем занятии\n"
+            "/help - Эта справка\n\n"
+            "📞 По всем вопросам обращайтесь к администратору."
+        )
+        bot.send_message(message.chat.id, help_text)
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson(message):

@@ -19,10 +19,10 @@ cursor.execute("""
         age TEXT,
         contact TEXT,
         course TEXT,
-        lesson_date TEXT,
+        lesson_date DATETIME,
         lesson_link TEXT,
         status TEXT DEFAULT 'Ожидает',
-        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+        created_at DATETIME DEFAULT (datetime('now', 'localtime'))
     )
 """)
 
@@ -35,10 +35,10 @@ cursor.execute("""
         age TEXT,
         contact TEXT,
         course TEXT,
-        lesson_date TEXT,
+        lesson_date DATETIME,
         lesson_link TEXT,
         status TEXT,
-        created_at TEXT,
+        created_at DATETIME,
         cancelled_by TEXT,
         cancel_reason TEXT
     )
@@ -53,6 +53,13 @@ cursor.execute("""
     )
 """)
 
+# Создаем индексы для улучшения производительности
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_lesson_date ON archive(lesson_date)")
+cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_created_at ON archive(created_at)")
+
 conn.commit()
 conn.close()
-print("✅ Новая база создана.")
+print("✅ Новая база создана с типом DATETIME для lesson_date и created_at.")

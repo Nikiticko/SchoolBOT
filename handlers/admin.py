@@ -4,7 +4,9 @@ from data.db import (
     get_pending_applications,
     clear_applications,
     update_application_lesson,
-    get_application_by_id
+    get_application_by_id,
+    format_date_for_display,
+    validate_date_format
 )
 from state.users import writing_ids
 from data.db import clear_archive
@@ -92,6 +94,7 @@ def register(bot):
 
             for app in applications:
                 app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at = app
+                formatted_created = format_date_for_display(created_at)
                 text = (
                     f"🆔 Заявка #{app_id}\n"
                     f"👤 Родитель: {parent_name}\n"
@@ -100,7 +103,7 @@ def register(bot):
                     f"🎂 Возраст: {age}\n"
                     f"📘 Курс: {course}\n"
                     f"📅 Статус: {status}\n"
-                    f"🕒 Создано: {created_at}"
+                    f"🕒 Создано: {formatted_created}"
                 )
                 markup = types.InlineKeyboardMarkup()
                 markup.add(types.InlineKeyboardButton("🕒 Назначить", callback_data=f"assign:{app_id}"))
@@ -119,16 +122,48 @@ def register(bot):
     def get_link(message, app_id):
         if message.from_user.id not in writing_ids:
             return
-        date = message.text.strip()
+        
+        date_text = message.text.strip()
+        
+        # Валидируем дату
+        is_valid, result = validate_date_format(date_text)
+        
+        if not is_valid:
+            bot.send_message(
+                message.chat.id, 
+                f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:00):"
+            )
+            bot.register_next_step_handler(message, lambda m: get_link(m, app_id))
+            return
+        
+        # Сохраняем валидную дату
+        user_data = getattr(message, '_user_data', {})
+        user_data['valid_date'] = result
+        message._user_data = user_data
+        
         bot.send_message(message.chat.id, "🔗 Введите ссылку на урок:")
-        bot.register_next_step_handler(message, lambda m: finalize_lesson(m, app_id, date))
+        bot.register_next_step_handler(message, lambda m: finalize_lesson(m, app_id, date_text))
 
-    def finalize_lesson(message, app_id, date):
+    def finalize_lesson(message, app_id, date_text):
         if message.from_user.id not in writing_ids:
             return
+        
         link = message.text.strip()
-        update_application_lesson(app_id, date, link)
-        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {date}\n🔗 {link}")
+        
+        # Получаем валидированную дату
+        user_data = getattr(message, '_user_data', {})
+        valid_date = user_data.get('valid_date')
+        
+        if valid_date:
+            # Используем валидированную дату (datetime объект)
+            update_application_lesson(app_id, valid_date, link)
+            formatted_date = format_date_for_display(valid_date)
+        else:
+            # Fallback - используем строку и надеемся на лучшее
+            update_application_lesson(app_id, date_text, link)
+            formatted_date = date_text
+        
+        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {formatted_date}\n🔗 {link}")
 
         app = get_application_by_id(app_id)
         if app:
@@ -137,7 +172,7 @@ def register(bot):
             try:
                 bot.send_message(
                     int(tg_id),
-                    f"📅 Вам назначен урок!\n📘 Курс: {course}\n🗓 Дата: {date}\n🔗 Ссылка: {link}"
+                    f"📅 Вам назначен урок!\n📘 Курс: {course}\n🗓 Дата: {formatted_date}\n🔗 Ссылка: {link}"
                 )
             except Exception as e:
                 print(f"[❗] Ошибка уведомления ученика {tg_id}: {e}")

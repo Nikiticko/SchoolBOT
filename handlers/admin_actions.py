@@ -6,7 +6,9 @@ from data.db import (
     cancel_assigned_lesson,
     update_application_lesson,
     get_application_by_id,
-    archive_application
+    archive_application,
+    format_date_for_display,
+    validate_date_format
 )
 from state.users import writing_ids
 from handlers.admin import is_admin
@@ -24,12 +26,13 @@ def register_admin_actions(bot):
 
         for app in apps:
             app_id, _, parent_name, student_name, _, _, course, date, link, _, _ = app
+            formatted_date = format_date_for_display(date)
             text = (
                 f"🆔 Заявка #{app_id}\n"
                 f"👤 Родитель: {parent_name}\n"
                 f"🧒 Ученик: {student_name}\n"
                 f"📘 Курс: {course}\n"
-                f"📅 Дата: {date}\n"
+                f"📅 Дата: {formatted_date}\n"
                 f"🔗 Ссылка: {link}"
             )
             markup = types.InlineKeyboardMarkup()
@@ -118,12 +121,13 @@ def register_admin_actions(bot):
 
         for app in apps:
             app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _ = app
+            formatted_date = format_date_for_display(date)
             text = (
                 f"🆔 Заявка #{app_id}\n"
                 f"👤 Родитель: {parent_name}\n"
                 f"🧒 Ученик: {student_name}\n"
                 f"📘 Курс: {course}\n"
-                f"📅 Дата: {date}\n"
+                f"📅 Дата: {formatted_date}\n"
                 f"🔗 Ссылка: {link}"
             )
             markup = types.InlineKeyboardMarkup()
@@ -193,12 +197,13 @@ def register_admin_actions(bot):
 
         for app in apps:
             app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _ = app
+            formatted_date = format_date_for_display(date)
             text = (
                 f"🆔 Заявка #{app_id}\n"
                 f"👤 Родитель: {parent_name}\n"
                 f"🧒 Ученик: {student_name}\n"
                 f"📘 Курс: {course}\n"
-                f"📅 Текущая дата: {date}\n"
+                f"📅 Текущая дата: {formatted_date}\n"
                 f"🔗 Ссылка: {link}"
             )
             markup = types.InlineKeyboardMarkup()
@@ -215,16 +220,48 @@ def register_admin_actions(bot):
     def get_new_date(message, app_id):
         if message.from_user.id not in writing_ids:
             return
+        
         date_text = message.text.strip()
+        
+        # Валидируем дату
+        is_valid, result = validate_date_format(date_text)
+        
+        if not is_valid:
+            bot.send_message(
+                message.chat.id, 
+                f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:30):"
+            )
+            bot.register_next_step_handler(message, lambda m: get_new_date(m, app_id))
+            return
+        
+        # Сохраняем валидную дату
+        user_data = getattr(message, '_user_data', {})
+        user_data['valid_date'] = result
+        message._user_data = user_data
+        
         bot.send_message(message.chat.id, "🔗 Введите новую ссылку на урок:")
         bot.register_next_step_handler(message, lambda m: apply_reschedule(m, app_id, date_text))
 
     def apply_reschedule(message, app_id, date_text):
         if message.from_user.id not in writing_ids:
             return
+        
         link = message.text.strip()
-        update_application_lesson(app_id, date_text, link)
-        bot.send_message(message.chat.id, f"✅ Урок перенесён на:\n📅 {date_text}\n🔗 {link}")
+        
+        # Получаем валидированную дату
+        user_data = getattr(message, '_user_data', {})
+        valid_date = user_data.get('valid_date')
+        
+        if valid_date:
+            # Используем валидированную дату (datetime объект)
+            update_application_lesson(app_id, valid_date, link)
+            formatted_date = format_date_for_display(valid_date)
+        else:
+            # Fallback - используем строку и надеемся на лучшее
+            update_application_lesson(app_id, date_text, link)
+            formatted_date = date_text
+        
+        bot.send_message(message.chat.id, f"✅ Урок перенесён на:\n📅 {formatted_date}\n🔗 {link}")
 
         app = get_application_by_id(app_id)
         if app:
@@ -233,7 +270,7 @@ def register_admin_actions(bot):
             try:
                 bot.send_message(
                     int(tg_id),
-                    f"🔄 Ваш урок был перенесён!\n📘 Курс: {course}\n🗓 Новая дата: {date_text}\n🔗 Ссылка: {link}"
+                    f"🔄 Ваш урок был перенесён!\n📘 Курс: {course}\n🗓 Новая дата: {formatted_date}\n🔗 Ссылка: {link}"
                 )
             except Exception as e:
                 print(f"[❗] Не удалось уведомить ученика {tg_id}: {e}")

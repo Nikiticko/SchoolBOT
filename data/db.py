@@ -1,7 +1,52 @@
 import sqlite3
 from datetime import datetime
+import re
 
 DB_NAME = "data/database.db"
+
+def parse_date_string(date_str):
+    """Парсит строку даты в формате 'DD.MM HH:MM' в datetime объект"""
+    if not date_str or date_str == 'None':
+        return None
+    
+    try:
+        # Предполагаем формат "22.06 17:30"
+        if '.' in date_str and ':' in date_str:
+            # Извлекаем дату и время
+            date_part, time_part = date_str.split(' ')
+            day, month = date_part.split('.')
+            hour, minute = time_part.split(':')
+            
+            # Текущий год
+            current_year = datetime.now().year
+            
+            # Создаем datetime объект
+            dt = datetime(current_year, int(month), int(day), int(hour), int(minute))
+            
+            # Если дата в прошлом, добавляем год
+            if dt < datetime.now():
+                dt = datetime(current_year + 1, int(month), int(day), int(hour), int(minute))
+            
+            return dt
+        else:
+            # Попробуем другие форматы
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+    except Exception as e:
+        print(f"⚠️ Не удалось распарсить дату '{date_str}': {e}")
+        return None
+
+def format_date_for_display(dt):
+    """Форматирует datetime объект для отображения в формате 'DD.MM HH:MM'"""
+    if not dt:
+        return "Не назначено"
+    
+    if isinstance(dt, str):
+        # Если это строка, пытаемся распарсить
+        dt = parse_date_string(dt)
+        if not dt:
+            return dt
+    
+    return dt.strftime("%d.%m %H:%M")
 
 def get_connection():
     import os
@@ -22,10 +67,10 @@ def init_db():
                 age TEXT,
                 contact TEXT,
                 course TEXT,
-                lesson_date TEXT,
+                lesson_date DATETIME,
                 lesson_link TEXT,
                 status TEXT DEFAULT 'Ожидает',
-                created_at TEXT DEFAULT (datetime('now', 'localtime'))
+                created_at DATETIME DEFAULT (datetime('now', 'localtime'))
             )
         """)
         cursor.execute("""
@@ -36,6 +81,12 @@ def init_db():
                 active BOOLEAN DEFAULT 1
             )
         """)
+        
+        # Создаем индексы для улучшения производительности
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
+        
         conn.commit()
 
 
@@ -71,6 +122,11 @@ def get_pending_applications():
 def update_application_lesson(app_id, lesson_date, lesson_link):
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Конвертируем строку даты в datetime объект, если необходимо
+        if isinstance(lesson_date, str):
+            lesson_date = parse_date_string(lesson_date)
+        
         cursor.execute("""
             UPDATE applications
             SET lesson_date = ?, lesson_link = ?, status = 'Назначено'
@@ -234,3 +290,53 @@ def clear_archive():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM archive")
         conn.commit()
+
+def validate_date_format(date_str):
+    """Проверяет, соответствует ли строка даты правильному формату 'DD.MM HH:MM'"""
+    if not date_str or not isinstance(date_str, str):
+        return False, "Дата должна быть строкой"
+    
+    date_str = date_str.strip()
+    
+    # Проверяем строгий формат: ДД.ММ ЧЧ:ММ (с ведущими нулями)
+    if not re.match(r'^\d{2}\.\d{2}\s+\d{2}:\d{2}$', date_str):
+        return False, "Формат должен быть: ДД.ММ ЧЧ:ММ (например: 22.06 17:30)"
+    
+    try:
+        # Разбираем дату
+        date_part, time_part = date_str.split(' ')
+        day, month = date_part.split('.')
+        hour, minute = time_part.split(':')
+        
+        # Проверяем диапазоны
+        day = int(day)
+        month = int(month)
+        hour = int(hour)
+        minute = int(minute)
+        
+        if not (1 <= day <= 31):
+            return False, "День должен быть от 1 до 31"
+        
+        if not (1 <= month <= 12):
+            return False, "Месяц должен быть от 1 до 12"
+        
+        if not (0 <= hour <= 23):
+            return False, "Час должен быть от 0 до 23"
+        
+        if not (0 <= minute <= 59):
+            return False, "Минуты должны быть от 0 до 59"
+        
+        # Проверяем корректность даты
+        current_year = datetime.now().year
+        test_date = datetime(current_year, month, day, hour, minute)
+        
+        # Если дата в прошлом, добавляем год
+        if test_date < datetime.now():
+            test_date = datetime(current_year + 1, month, day, hour, minute)
+        
+        return True, test_date
+        
+    except ValueError as e:
+        return False, f"Некорректная дата: {str(e)}"
+    except Exception as e:
+        return False, f"Ошибка при проверке даты: {str(e)}"

@@ -3,13 +3,15 @@ import re
 
 from state.users import user_data
 from utils.menu import get_main_menu
-from handlers.admin import notify_admin_new_application
+from handlers.admin import notify_admin_new_application, is_admin
 from data.db import (
     add_application,
     get_application_by_tg_id,
     get_active_courses,
-    get_archive_count_by_tg_id
+    get_archive_count_by_tg_id,
+    format_date_for_display
 )
+from utils.menu import get_admin_menu
 
 
 def handle_existing_registration(bot, chat_id):
@@ -44,7 +46,8 @@ def register(bot):
             if not date and not link:
                 handle_existing_registration(bot, chat_id)
             else:
-                bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 {date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
+                formatted_date = format_date_for_display(date)
+                bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
             return
 
         # Начало регистрации
