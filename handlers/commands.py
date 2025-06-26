@@ -1,7 +1,7 @@
 # === handlers/commands.py ===
 from telebot import types
 from utils.menu import get_main_menu, get_admin_menu, get_cancel_button
-from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application
+from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact
 from handlers.admin import is_admin
 from utils.logger import log_user_action, log_error
 from state.users import user_data
@@ -417,3 +417,74 @@ def register(bot, logger):
     def handle_cancel_cancel_lesson_user(call):
         chat_id = call.message.chat.id
         bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=get_main_menu())
+
+    @bot.message_handler(func=lambda m: m.text == "🆘 Обратиться к админу")
+    def handle_contact_admin(message):
+        from data.db import is_user_banned, get_last_contact_time, add_contact
+        import datetime
+        chat_id = message.chat.id
+        user = message.from_user
+        if is_user_banned(str(chat_id)):
+            bot.send_message(chat_id, "🚫 Вы заблокированы за спам. Обращения невозможны.", reply_markup=get_main_menu())
+            return
+        last_time = get_last_contact_time(str(chat_id))
+        if last_time:
+            last_dt = datetime.datetime.fromisoformat(last_time)
+            if (datetime.datetime.now() - last_dt).total_seconds() < 20*60:
+                bot.send_message(chat_id, "⏳ Вы можете отправлять обращения не чаще, чем раз в 20 минут.", reply_markup=get_main_menu())
+                return
+        bot.send_message(chat_id, "✍️ Опишите ваш вопрос или прикрепите файл (фото, документ, голосовое, видео).\n\nДля отмены нажмите '🔙 Отмена'.", reply_markup=get_cancel_button())
+        user_data[chat_id] = {"contact_fsm": True}
+        bot.register_next_step_handler(message, process_contact_message)
+
+    def process_contact_message(message):
+        from data.db import add_contact
+        chat_id = message.chat.id
+        user = message.from_user
+        if hasattr(message, 'text') and message.text == "🔙 Отмена":
+            bot.send_message(chat_id, "Обращение отменено.", reply_markup=get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        # Определяем контакт
+        contact = f"@{user.username}" if user.username else (user_data.get(chat_id, {}).get("phone") or str(chat_id))
+        # Определяем вложение
+        file_id = None
+        file_type = None
+        if message.content_type == 'photo':
+            file_id = message.photo[-1].file_id
+            file_type = 'photo'
+        elif message.content_type == 'document':
+            file_id = message.document.file_id
+            file_type = 'document'
+        elif message.content_type == 'voice':
+            file_id = message.voice.file_id
+            file_type = 'voice'
+        elif message.content_type == 'video':
+            file_id = message.video.file_id
+            file_type = 'video'
+        elif message.content_type == 'video_note':
+            file_id = message.video_note.file_id
+            file_type = 'video_note'
+        # Сохраняем обращение
+        if file_id:
+            msg_text = f"[Вложение: {file_type}, file_id: {file_id}]\n" + (message.caption or "")
+        else:
+            msg_text = message.text or "(без текста)"
+        contact_id = add_contact(str(chat_id), contact, msg_text)
+        bot.send_message(chat_id, "✅ Ваше обращение отправлено админу. Ожидайте ответа.", reply_markup=get_main_menu())
+        # Уведомление админу
+        admin_msg = f"🆘 Новое обращение от пользователя {contact}\nID: {chat_id}\n\nТекст: {msg_text}\n\nДля ответа используйте меню обращений."
+        bot.send_message(ADMIN_ID, admin_msg)
+        # Пересылаем вложение админу, если есть
+        if file_id:
+            if file_type == 'photo':
+                bot.send_photo(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
+            elif file_type == 'document':
+                bot.send_document(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
+            elif file_type == 'voice':
+                bot.send_voice(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
+            elif file_type == 'video':
+                bot.send_video(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
+            elif file_type == 'video_note':
+                bot.send_video_note(ADMIN_ID, file_id)
+        user_data.pop(chat_id, None)

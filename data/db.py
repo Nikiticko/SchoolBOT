@@ -69,8 +69,8 @@ def init_db():
                 course TEXT,
                 lesson_date DATETIME,
                 lesson_link TEXT,
-                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
-                status TEXT
+                status TEXT,
+                created_at DATETIME DEFAULT (datetime('now', 'localtime'))
             )
         """)
         cursor.execute("""
@@ -81,12 +81,23 @@ def init_db():
                 active BOOLEAN DEFAULT 1
             )
         """)
-        
-        # Создаем индексы для улучшения производительности
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
-        
-        conn.commit() 
+        # Новая таблица обращений
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS contacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_tg_id TEXT,
+                user_contact TEXT,
+                message TEXT,
+                admin_reply TEXT,
+                status TEXT DEFAULT 'Ожидает ответа',
+                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+                reply_at DATETIME,
+                banned BOOLEAN DEFAULT 0
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_tg_id ON contacts(user_tg_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
+        conn.commit()
 
 
 def add_application(tg_id, parent_name, student_name, age, contact, course):
@@ -344,3 +355,68 @@ def get_finished_count_by_tg_id(tg_id):
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM archive WHERE tg_id = ? AND status = 'Завершено'", (tg_id,))
         return cursor.fetchone()[0]
+
+# --- Функции для работы с обращениями ---
+def add_contact(user_tg_id, user_contact, message):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO contacts (user_tg_id, user_contact, message)
+            VALUES (?, ?, ?)
+        """, (user_tg_id, user_contact, message))
+        conn.commit()
+        return cursor.lastrowid
+
+def get_last_contact_time(user_tg_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT created_at FROM contacts WHERE user_tg_id = ? ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+def get_open_contacts():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM contacts WHERE status = 'Ожидает ответа' ORDER BY created_at ASC")
+        return cursor.fetchall()
+
+def get_all_contacts():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM contacts ORDER BY created_at DESC")
+        return cursor.fetchall()
+
+def get_contact_by_id(contact_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+        return cursor.fetchone()
+
+def reply_to_contact(contact_id, reply_text):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE contacts
+            SET admin_reply = ?, status = 'Ответ предоставлен', reply_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (reply_text, contact_id))
+        conn.commit()
+
+def ban_user_by_contact(user_tg_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE contacts SET banned = 1 WHERE user_tg_id = ?", (user_tg_id,))
+        conn.commit()
+
+def is_user_banned(user_tg_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT banned FROM contacts WHERE user_tg_id = ? ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
+        row = cursor.fetchone()
+        return bool(row[0]) if row else False
+
+def clear_contacts():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM contacts")
+        conn.commit()

@@ -8,7 +8,11 @@ from data.db import (
     format_date_for_display,
     validate_date_format,
     get_all_applications,
-    get_all_archive
+    get_all_archive,
+    get_open_contacts,
+    reply_to_contact,
+    get_contact_by_id,
+    ban_user_by_contact
 )
 from state.users import writing_ids
 from data.db import clear_archive
@@ -17,6 +21,7 @@ import openpyxl
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
+import re
 
 
 def is_admin(user_id):
@@ -221,6 +226,7 @@ def register(bot, logger):
         markup.add("➕ Добавить курс", "🗑 Удалить курс")
         markup.add("❄ Заморозить курс", "📝 Отредактировать курс")
         markup.add("👁 Просмотреть все курсы")
+        markup.add("📨 Обращения пользователей")
         markup.add("🔙 Назад")
         bot.send_message(message.chat.id, "🎓 Меню редактирования курсов:", reply_markup=markup)
 
@@ -286,3 +292,97 @@ def register(bot, logger):
             bot.send_document(call.message.chat.id, f, visible_file_name=filename)
         os.remove(tmp_path)
         bot.answer_callback_query(call.id, "Выгрузка завершена")
+
+    @bot.message_handler(func=lambda m: m.text == "📨 Обращения пользователей" and is_admin(m.from_user.id))
+    def handle_contacts_menu(message):
+        contacts = get_open_contacts()
+        if not contacts:
+            bot.send_message(message.chat.id, "✅ Нет новых обращений.", reply_markup=get_admin_menu())
+            return
+        for c in contacts:
+            contact_id, user_tg_id, user_contact, msg, admin_reply, status, created_at, reply_at, banned = c
+            # Проверяем, есть ли вложение
+            file_match = re.match(r"\[Вложение: (\w+), file_id: ([\w\-_]+)\](.*)", msg, re.DOTALL)
+            if file_match:
+                file_type, file_id, caption = file_match.groups()
+                caption = caption.strip() or None
+                if file_type == 'photo':
+                    bot.send_photo(message.chat.id, file_id, caption=f"Обращение #{contact_id} от {user_contact}\n{caption or ''}")
+                elif file_type == 'document':
+                    bot.send_document(message.chat.id, file_id, caption=f"Обращение #{contact_id} от {user_contact}\n{caption or ''}")
+                elif file_type == 'voice':
+                    bot.send_voice(message.chat.id, file_id)
+                elif file_type == 'video':
+                    bot.send_video(message.chat.id, file_id, caption=f"Обращение #{contact_id} от {user_contact}\n{caption or ''}")
+                elif file_type == 'video_note':
+                    bot.send_video_note(message.chat.id, file_id)
+                # Текстовое описание
+                text = (
+                    f"🆘 Обращение #{contact_id}\n"
+                    f"👤 Пользователь: {user_contact} (ID: {user_tg_id})\n"
+                    f"⏰ Время: {created_at}\n"
+                    f"Статус: {status}\n"
+                    f"\nТекст: (см. вложение выше)"
+                )
+            else:
+                text = (
+                    f"🆘 Обращение #{contact_id}\n"
+                    f"👤 Пользователь: {user_contact} (ID: {user_tg_id})\n"
+                    f"⏰ Время: {created_at}\n"
+                    f"Статус: {status}\n"
+                    f"\nТекст: {msg}"
+                )
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("✉️ Ответить", callback_data=f"reply_contact:{contact_id}"))
+            markup.add(types.InlineKeyboardButton("🚫 Забанить", callback_data=f"ban_contact:{user_tg_id}"))
+            bot.send_message(message.chat.id, text, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("reply_contact:"))
+    def handle_reply_contact(call):
+        contact_id = int(call.data.split(":")[1])
+        bot.send_message(call.message.chat.id, "✍️ Введите ответ пользователю:", reply_markup=get_cancel_button())
+        bot.register_next_step_handler(call.message, lambda m: process_admin_reply(m, contact_id))
+
+    def process_admin_reply(message, contact_id):
+        if message.text == "🔙 Отмена":
+            bot.send_message(message.chat.id, "Ответ отменён.", reply_markup=get_admin_menu())
+            return
+        reply_to_contact(contact_id, message.text)
+        contact = get_contact_by_id(contact_id)
+        user_tg_id = contact[1]
+        bot.send_message(message.chat.id, "✅ Ответ отправлен пользователю.", reply_markup=get_admin_menu())
+        bot.send_message(int(user_tg_id), f"📨 Ответ от администратора:\n\n{message.text}")
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("ban_contact:"))
+    def handle_ban_contact(call):
+        user_tg_id = call.data.split(":")[1]
+        ban_user_by_contact(user_tg_id)
+        bot.send_message(call.message.chat.id, f"Пользователь {user_tg_id} заблокирован для обращений.", reply_markup=get_admin_menu())
+
+    @bot.message_handler(commands=["ClearContacts"])
+    def handle_clear_contacts(message):
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command ClearContacts")
+            return
+        from data.db import clear_contacts
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ Да, очистить обращения", callback_data="confirm_clear_contacts"),
+            types.InlineKeyboardButton("❌ Нет", callback_data="cancel_clear_contacts")
+        )
+        bot.send_message(message.chat.id, "⚠️ Вы уверены, что хотите удалить все обращения пользователей? Это действие необратимо.", reply_markup=markup)
+        logger.info(f"Admin {message.from_user.id} initiated ClearContacts")
+
+    @bot.callback_query_handler(func=lambda c: c.data in ["confirm_clear_contacts", "cancel_clear_contacts"])
+    def handle_clear_contacts_confirm(call):
+        if not is_admin(call.from_user.id):
+            logger.warning(f"User {call.from_user.id} tried to confirm clear contacts without admin rights")
+            return
+        from data.db import clear_contacts
+        if call.data == "confirm_clear_contacts":
+            clear_contacts()
+            bot.send_message(call.message.chat.id, "🧹 Все обращения пользователей успешно удалены.")
+            logger.info(f"Admin {call.from_user.id} cleared all contacts")
+        else:
+            bot.send_message(call.message.chat.id, "❌ Очистка обращений отменена.")
+            logger.info(f"Admin {call.from_user.id} cancelled clear contacts")
