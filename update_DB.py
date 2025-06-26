@@ -21,7 +21,9 @@ cursor.execute("""
         course TEXT,
         lesson_date DATETIME,
         lesson_link TEXT,
-        created_at DATETIME DEFAULT (datetime('now', 'localtime'))
+        status TEXT,
+        created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+        reminder_sent BOOLEAN DEFAULT 0
     )
 """)
 

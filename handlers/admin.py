@@ -21,7 +21,7 @@ from openpyxl.utils import get_column_letter
 import tempfile
 import os
 import re
-
+import openpyxl
 
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)
@@ -112,7 +112,7 @@ def register(bot, logger):
                 return
 
             for app in applications:
-                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at = app
+                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = app
                 formatted_created = format_date_for_display(created_at)
                 # Статус заявки
                 if status == "Назначено":
@@ -245,7 +245,7 @@ def register(bot, logger):
             # Формируем строки с вычисленным статусом
             rows = []
             for row in data:
-                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at = row
+                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = row
                 if status == "Назначено":
                     status_str = "Назначено"
                 else:

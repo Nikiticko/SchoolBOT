@@ -26,7 +26,7 @@ def register_admin_actions(bot, logger):
                 return
 
             for app in apps:
-                app_id, _, parent_name, student_name, _, _, course, date, link, _, _ = app
+                app_id, _, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
                 formatted_date = format_date_for_display(date)
                 text = (
                     f"🆔 Заявка #{app_id}\n"
@@ -124,7 +124,7 @@ def register_admin_actions(bot, logger):
                 return
 
             for app in apps:
-                app_id, _, parent_name, student_name, _, _, course, _, _, _, _ = app
+                app_id, _, parent_name, student_name, _, _, course, _, _, _, _, reminder_sent = app
                 text = (
                     f"🆔 Заявка #{app_id}\n"
                     f"👤 Родитель: {parent_name}\n"
@@ -210,7 +210,7 @@ def register_admin_actions(bot, logger):
                 return
 
             for app in apps:
-                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _ = app
+                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
                 formatted_date = format_date_for_display(date)
                 text = (
                     f"🆔 Заявка #{app_id}\n"
@@ -297,7 +297,7 @@ def register_admin_actions(bot, logger):
                 return
 
             for app in apps:
-                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _ = app
+                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
                 formatted_date = format_date_for_display(date)
                 text = (
                     f"🆔 Заявка #{app_id}\n"

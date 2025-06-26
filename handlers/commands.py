@@ -492,3 +492,37 @@ def register(bot, logger):
             elif file_type == 'video_note':
                 bot.send_video_note(ADMIN_ID, file_id)
         user_data.pop(chat_id, None)
+
+    @bot.message_handler(func=lambda m: m.text == "ℹ️ О преподавателе")
+    def handle_about_teacher(message):
+        text = (
+            "👩‍🏫 <b>О преподавателе</b>\n\n"
+            "Меня зовут Никита, я профессиональный преподаватель с большим опытом работы.\n"
+            "Провожу индивидуальные и групповые занятия для детей и взрослых.\n\n"
+            "📚 Использую современные методики и индивидуальный подход к каждому ученику.\n"
+            "\nСвязаться со мной: @your_teacher_username"
+        )
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_main_menu())
+
+    @bot.message_handler(func=lambda m: m.text == "💰 Цены и форматы")
+    def handle_prices_formats(message):
+        text = (
+            "💰 <b>Цены и форматы занятий</b>\n\n"
+            "• Индивидуальное занятие: 1000 руб/час\n"
+            "• Групповое занятие: 700 руб/час\n"
+            "• Пробный урок: бесплатно\n\n"
+            "Занятия проходят онлайн и офлайн.\n"
+            "\nДля подробностей — обращайтесь в личные сообщения!"
+        )
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_main_menu())
+
+    @bot.message_handler(func=lambda m: m.text == "📚 Доступные курсы")
+    def handle_available_courses(message):
+        courses = get_active_courses()
+        if not courses:
+            bot.send_message(message.chat.id, "⚠️ Сейчас нет активных курсов.", reply_markup=menu.get_main_menu())
+            return
+        text = "<b>Доступные курсы:</b>\n\n"
+        for c in courses:
+            text += f"<b>{c[1]}</b>\n{c[2]}\n\n"
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_main_menu())

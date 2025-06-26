@@ -70,7 +70,8 @@ def init_db():
                 lesson_date DATETIME,
                 lesson_link TEXT,
                 status TEXT,
-                created_at DATETIME DEFAULT (datetime('now', 'localtime'))
+                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+                reminder_sent BOOLEAN DEFAULT 0
             )
         """)
         cursor.execute("""
@@ -430,4 +431,60 @@ def clear_contacts():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM contacts")
+        conn.commit()
+
+def get_upcoming_lessons(minutes=30):
+    """Возвращает заявки, у которых урок через <=minutes и напоминание не отправлено"""
+    import datetime
+    now = datetime.datetime.now()
+    print(f"[DEBUG] get_upcoming_lessons: now={now}, minutes={minutes}")
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM applications
+            WHERE lesson_date IS NOT NULL
+              AND lesson_link IS NOT NULL
+              AND reminder_sent = 0
+        """)
+        rows = cursor.fetchall()
+        print(f"[DEBUG] get_upcoming_lessons: found {len(rows)} rows with lesson_date and lesson_link")
+        result = []
+        for row in rows:
+            lesson_date = row[7]  # lesson_date - индекс 7
+            print(f"[DEBUG] Processing row {row[0]}: lesson_date={lesson_date}")
+            if not lesson_date:
+                print(f"[DEBUG] Row {row[0]}: lesson_date is empty, skipping")
+                continue
+            dt = None
+            try:
+                dt = datetime.datetime.fromisoformat(lesson_date)
+                print(f"[DEBUG] Row {row[0]}: parsed with fromisoformat: {dt}")
+            except Exception as e:
+                try:
+                    dt = datetime.datetime.strptime(lesson_date, "%Y-%m-%d %H:%M:%S")
+                    print(f"[DEBUG] Row {row[0]}: parsed with strptime1: {dt}")
+                except Exception as e2:
+                    try:
+                        dt = datetime.datetime.strptime(lesson_date, "%Y-%m-%d %H:%M:%S.%f")
+                        print(f"[DEBUG] Row {row[0]}: parsed with strptime2: {dt}")
+                    except Exception as e3:
+                        print(f"[DEBUG] Row {row[0]}: failed to parse date: {e}, {e2}, {e3}")
+                        continue
+            if not dt:
+                print(f"[DEBUG] Row {row[0]}: dt is None, skipping")
+                continue
+            delta = (dt - now).total_seconds() / 60
+            print(f"[DEBUG] Row {row[0]}: delta={delta} minutes")
+            if 0 < delta <= minutes:
+                print(f"[DEBUG] Row {row[0]}: adding to result (delta in range)")
+                result.append(row)
+            else:
+                print(f"[DEBUG] Row {row[0]}: delta not in range, skipping")
+        print(f"[DEBUG] get_upcoming_lessons: returning {len(result)} lessons")
+        return result
+
+def mark_reminder_sent(app_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE applications SET reminder_sent = 1 WHERE id = ?", (app_id,))
         conn.commit()
