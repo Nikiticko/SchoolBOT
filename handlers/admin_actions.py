@@ -2,8 +2,6 @@ from telebot import types
 from data.db import (
     get_assigned_applications,
     get_pending_applications,
-    update_application_status,
-    cancel_assigned_lesson,
     update_application_lesson,
     get_application_by_id,
     archive_application,

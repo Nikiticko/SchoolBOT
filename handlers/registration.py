@@ -54,8 +54,8 @@ def register(bot, logger):
             # 6. Уже есть активная заявка
             app = get_application_by_tg_id(str(chat_id))
             if app:
-                course, date, link = app[6], app[7], app[8]
-                if not date and not link:
+                course, date, link, status = app[6], app[7], app[8], app[9]
+                if status != "Назначено":
                     handle_existing_registration(bot, chat_id)
                 else:
                     formatted_date = format_date_for_display(date)
@@ -210,8 +210,8 @@ def register(bot, logger):
         if not app:
             bot.send_message(chat_id, "Вы ещё не регистрировались. Нажмите «📋 Записаться».", reply_markup=get_main_menu())
             return
-        course, date, link = app[6], app[7], app[8]
-        if not date and not link:
+        course, date, link, status = app[6], app[7], app[8], app[9]
+        if status != "Назначено":
             # Показываем заявку и кнопки
             parent_name = app[2]
             student_name = app[3]

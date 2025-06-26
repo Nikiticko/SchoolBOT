@@ -23,19 +23,16 @@ def monitor_loop(bot, logger):
                     course = app[6]
                     date = app[7]
                     link = app[8]
-                    status = app[9]
 
-                    if date and link and status.lower() == "ожидает":
+                    if date and link:
                         msg = (
                             f"📅 Ваш урок назначен: {date}\n"
                             f"📘 Курс: {course}\n"
                             f"🔗 Ссылка: {link}"
                         )
                         bot.send_message(user_id, msg, reply_markup=get_main_menu())
-                        
                         update_application_lesson(app[0], date, link)
                         pending.pop(user_id, None)
-                        
                         logger.info(f"✅ Lesson notification sent to user {user_id}")
                         log_user_action(logger, user_id, "lesson_notification_sent", f"course: {course}")
 

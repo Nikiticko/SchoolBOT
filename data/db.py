@@ -69,8 +69,8 @@ def init_db():
                 course TEXT,
                 lesson_date DATETIME,
                 lesson_link TEXT,
-                status TEXT DEFAULT 'Ожидает',
-                created_at DATETIME DEFAULT (datetime('now', 'localtime'))
+                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+                status TEXT
             )
         """)
         cursor.execute("""
@@ -84,7 +84,6 @@ def init_db():
         
         # Создаем индексы для улучшения производительности
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
         
         conn.commit() 
@@ -94,9 +93,9 @@ def add_application(tg_id, parent_name, student_name, age, contact, course):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO applications (tg_id, parent_name, student_name, age, contact, course)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (tg_id, parent_name, student_name, age, contact, course))
+            INSERT INTO applications (tg_id, parent_name, student_name, age, contact, course, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (tg_id, parent_name, student_name, age, contact, course, 'Ожидает'))
         conn.commit()
 
 def get_application_by_tg_id(tg_id):
@@ -114,7 +113,7 @@ def get_pending_applications():
         cursor = conn.cursor()
         cursor.execute("""
             SELECT * FROM applications
-            WHERE status = 'Ожидает'
+            WHERE lesson_date IS NULL AND lesson_link IS NULL
             ORDER BY created_at DESC
         """)
         return cursor.fetchall()
@@ -129,7 +128,7 @@ def update_application_lesson(app_id, lesson_date, lesson_link):
         
         cursor.execute("""
             UPDATE applications
-            SET lesson_date = ?, lesson_link = ?, status = 'Назначено'
+            SET lesson_date = ?, lesson_link = ?, status = 'Назначено' 
             WHERE id = ?
         """, (lesson_date, lesson_link, app_id))
         conn.commit()
@@ -202,38 +201,15 @@ def get_application_by_id(app_id):
         return cursor.fetchone()
 
 
-def update_application_status(app_id, new_status):
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE applications
-            SET status = ?
-            WHERE id = ?
-        """, (new_status, app_id))
-        conn.commit()
-
 def get_assigned_applications():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
             SELECT * FROM applications
-            WHERE status = 'Назначено'
+            WHERE lesson_date IS NOT NULL AND lesson_link IS NOT NULL
             ORDER BY created_at DESC
         """)
         return cursor.fetchall()
-
-def cancel_assigned_lesson(app_id):
-    with get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE applications
-            SET lesson_date = NULL,
-                lesson_link = NULL,
-                status = 'Отменено'
-            WHERE id = ?
-        """, (app_id,))
-        conn.commit()
-
 
 def archive_application(app_id: int, cancelled_by="user", comment="", archived_status="Заявка отменена"):
     with get_connection() as conn:

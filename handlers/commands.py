@@ -56,6 +56,29 @@ def register(bot, logger):
             course = app[6]
             date = app[7]
             link = app[8]
+            status = app[9]
+            if status != "Назначено":
+                # Показываем заявку и кнопки
+                parent_name = app[2]
+                student_name = app[3]
+                age = app[4]
+                contact = app[5]
+                course = app[6]
+                msg = (
+                    f"Ваша заявка на рассмотрении:\n"
+                    f"👤 Родитель: {parent_name}\n"
+                    f"🧒 Ученик: {student_name}\n"
+                    f"🎂 Возраст: {age}\n"
+                    f"📘 Курс: {course}\n"
+                    f"📞 Контакт: {contact or 'не указан'}"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(
+                    types.InlineKeyboardButton("✏️ Редактировать заявку", callback_data="edit_application"),
+                    types.InlineKeyboardButton("❌ Отменить заявку", callback_data="cancel_application")
+                )
+                bot.send_message(chat_id, msg, reply_markup=markup)
+                return
             if date and link:
                 formatted_date = format_date_for_display(date)
                 msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"

@@ -21,7 +21,6 @@ cursor.execute("""
         course TEXT,
         lesson_date DATETIME,
         lesson_link TEXT,
-        status TEXT DEFAULT 'Ожидает',
         created_at DATETIME DEFAULT (datetime('now', 'localtime'))
     )
 """)
@@ -55,7 +54,6 @@ cursor.execute("""
 
 # Создаем индексы для улучшения производительности
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
-cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_lesson_date ON archive(lesson_date)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_created_at ON archive(created_at)")

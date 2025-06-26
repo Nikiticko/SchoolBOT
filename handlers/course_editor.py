@@ -157,3 +157,17 @@ def register_course_editor(bot, logger):
             logger.info(f"Admin {message.from_user.id} returned to admin panel")
         except Exception as e:
             logger.error(f"Error in handle_back_to_admin_panel: {e}")
+
+            
+    @bot.message_handler(func=lambda m: m.text == "👁 Просмотреть все курсы" and is_admin(m.from_user.id))
+    def handle_view_all_courses(message):
+        courses = get_all_courses()
+        if not courses:
+            bot.send_message(message.chat.id, "Нет курсов в системе.")
+            return
+        msg = "<b>Все курсы:</b>\n\n"
+        for c in courses:
+            course_id, name, desc, active = c
+            status = "✅ Активен" if active else "🚫 Неактивен"
+            msg += f"<b>{name}</b> ({status})\nОписание: {desc}\n\n"
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")

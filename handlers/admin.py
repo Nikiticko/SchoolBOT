@@ -110,6 +110,11 @@ def register(bot, logger):
             for app in applications:
                 app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at = app
                 formatted_created = format_date_for_display(created_at)
+                # Статус заявки
+                if status == "Назначено":
+                    status_str = "Назначено"
+                else:
+                    status_str = "Ожидает"
                 text = (
                     f"🆔 Заявка #{app_id}\n"
                     f"👤 Родитель: {parent_name}\n"
@@ -117,7 +122,7 @@ def register(bot, logger):
                     f"📞 Контакт: {contact or 'не указан'}\n"
                     f"🎂 Возраст: {age}\n"
                     f"📘 Курс: {course}\n"
-                    f"📅 Статус: {status}\n"
+                    f"Статус: {status_str}\n"
                     f"🕒 Создано: {formatted_created}"
                 )
                 markup = types.InlineKeyboardMarkup()
@@ -215,6 +220,7 @@ def register(bot, logger):
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.add("➕ Добавить курс", "🗑 Удалить курс")
         markup.add("❄ Заморозить курс", "📝 Отредактировать курс")
+        markup.add("👁 Просмотреть все курсы")
         markup.add("🔙 Назад")
         bot.send_message(message.chat.id, "🎓 Меню редактирования курсов:", reply_markup=markup)
 
@@ -236,6 +242,18 @@ def register(bot, logger):
                 "ID", "TG ID", "Родитель", "Ученик", "Возраст", "Контакт", "Курс",
                 "Дата урока", "Ссылка", "Статус", "Создано"
             ]
+            # Формируем строки с вычисленным статусом
+            rows = []
+            for row in data:
+                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at = row
+                if status == "Назначено":
+                    status_str = "Назначено"
+                else:
+                    status_str = "Ожидает"
+                rows.append([
+                    app_id, tg_id, parent_name, student_name, age, contact, course,
+                    lesson_date, lesson_link, status_str, created_at
+                ])
         else:
             data = get_all_archive()
             filename = "archive_export.xlsx"
@@ -243,11 +261,11 @@ def register(bot, logger):
                 "ID", "TG ID", "Родитель", "Ученик", "Возраст", "Контакт", "Курс",
                 "Дата урока", "Ссылка", "Статус", "Создано", "Кем отменено", "Комментарий"
             ]
-
+            rows = data
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(headers)
-        for row in data:
+        for row in rows:
             ws.append(row)
         # Автоширина столбцов
         for col in ws.columns:
