@@ -99,6 +99,23 @@ def init_db():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_tg_id ON contacts(user_tg_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
+        
+        # Таблица отзывов
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                application_id INTEGER,
+                user_tg_id TEXT,
+                rating INTEGER CHECK (rating >= 1 AND rating <= 10),
+                feedback TEXT,
+                is_anonymous BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+                FOREIGN KEY (application_id) REFERENCES applications(id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_application_id ON reviews(application_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_user_tg_id ON reviews(user_tg_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(rating)")
         conn.commit()
 
 
@@ -437,7 +454,6 @@ def get_upcoming_lessons(minutes=30):
     """Возвращает заявки, у которых урок через <=minutes и напоминание не отправлено"""
     import datetime
     now = datetime.datetime.now()
-    print(f"[DEBUG] get_upcoming_lessons: now={now}, minutes={minutes}")
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
@@ -447,44 +463,127 @@ def get_upcoming_lessons(minutes=30):
               AND reminder_sent = 0
         """)
         rows = cursor.fetchall()
-        print(f"[DEBUG] get_upcoming_lessons: found {len(rows)} rows with lesson_date and lesson_link")
         result = []
         for row in rows:
             lesson_date = row[7]  # lesson_date - индекс 7
-            print(f"[DEBUG] Processing row {row[0]}: lesson_date={lesson_date}")
             if not lesson_date:
-                print(f"[DEBUG] Row {row[0]}: lesson_date is empty, skipping")
                 continue
             dt = None
             try:
                 dt = datetime.datetime.fromisoformat(lesson_date)
-                print(f"[DEBUG] Row {row[0]}: parsed with fromisoformat: {dt}")
             except Exception as e:
                 try:
                     dt = datetime.datetime.strptime(lesson_date, "%Y-%m-%d %H:%M:%S")
-                    print(f"[DEBUG] Row {row[0]}: parsed with strptime1: {dt}")
                 except Exception as e2:
                     try:
                         dt = datetime.datetime.strptime(lesson_date, "%Y-%m-%d %H:%M:%S.%f")
-                        print(f"[DEBUG] Row {row[0]}: parsed with strptime2: {dt}")
                     except Exception as e3:
-                        print(f"[DEBUG] Row {row[0]}: failed to parse date: {e}, {e2}, {e3}")
                         continue
             if not dt:
-                print(f"[DEBUG] Row {row[0]}: dt is None, skipping")
                 continue
             delta = (dt - now).total_seconds() / 60
-            print(f"[DEBUG] Row {row[0]}: delta={delta} minutes")
             if 0 < delta <= minutes:
-                print(f"[DEBUG] Row {row[0]}: adding to result (delta in range)")
                 result.append(row)
-            else:
-                print(f"[DEBUG] Row {row[0]}: delta not in range, skipping")
-        print(f"[DEBUG] get_upcoming_lessons: returning {len(result)} lessons")
         return result
 
 def mark_reminder_sent(app_id):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("UPDATE applications SET reminder_sent = 1 WHERE id = ?", (app_id,))
+        conn.commit()
+
+# === ФУНКЦИИ ДЛЯ РАБОТЫ С ОТЗЫВАМИ ===
+
+def add_review(application_id, user_tg_id, rating, feedback, is_anonymous=False):
+    """Добавляет отзыв"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO reviews (application_id, user_tg_id, rating, feedback, is_anonymous)
+            VALUES (?, ?, ?, ?, ?)
+        """, (application_id, user_tg_id, rating, feedback, is_anonymous))
+        conn.commit()
+        return cursor.lastrowid
+
+def get_reviews_for_publication(limit=10):
+    """Возвращает отзывы для публикации (с рейтингом >= 7)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT r.rating, r.feedback, r.is_anonymous, 
+                   a.parent_name, a.student_name, a.course,
+                   r.created_at
+            FROM reviews r
+            JOIN applications a ON r.application_id = a.id
+            WHERE r.rating >= 7
+            ORDER BY r.created_at DESC
+            LIMIT ?
+        """, (limit,))
+        return cursor.fetchall()
+
+def get_reviews_for_publication_with_deleted(limit=10):
+    """Возвращает отзывы для публикации (с рейтингом >= 7), включая удаленные заявки"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT r.rating, r.feedback, r.is_anonymous, 
+                   COALESCE(a.parent_name, ar.parent_name) as parent_name,
+                   COALESCE(a.student_name, ar.student_name) as student_name,
+                   COALESCE(a.course, ar.course) as course,
+                   r.created_at
+            FROM reviews r
+            LEFT JOIN applications a ON r.application_id = a.id
+            LEFT JOIN archive ar ON r.application_id = ar.id
+            WHERE r.rating >= 7 AND r.is_anonymous = 0
+            ORDER BY r.created_at DESC
+            LIMIT ?
+        """, (limit,))
+        return cursor.fetchall()
+
+def get_all_reviews():
+    """Возвращает все отзывы для админа (даже если заявка удалена)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT r.id, r.rating, r.feedback, r.is_anonymous, 
+                   COALESCE(a.parent_name, ar.parent_name) as parent_name,
+                   COALESCE(a.student_name, ar.student_name) as student_name,
+                   COALESCE(a.course, ar.course) as course,
+                   r.created_at, r.user_tg_id
+            FROM reviews r
+            LEFT JOIN applications a ON r.application_id = a.id
+            LEFT JOIN archive ar ON r.application_id = ar.id
+            ORDER BY r.created_at DESC
+        """)
+        return cursor.fetchall()
+
+def get_review_stats():
+    """Возвращает статистику отзывов"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_reviews,
+                AVG(rating) as avg_rating,
+                COUNT(CASE WHEN rating >= 8 THEN 1 END) as positive_reviews,
+                COUNT(CASE WHEN rating <= 5 THEN 1 END) as negative_reviews
+            FROM reviews
+        """)
+        return cursor.fetchone()
+
+def has_user_reviewed_application(application_id, user_tg_id):
+    """Проверяет, оставил ли пользователь отзыв на заявку"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM reviews 
+            WHERE application_id = ? AND user_tg_id = ?
+        """, (application_id, user_tg_id))
+        return cursor.fetchone()[0] > 0
+
+def clear_reviews():
+    """Очищает все отзывы"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM reviews")
         conn.commit()

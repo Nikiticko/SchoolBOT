@@ -15,7 +15,8 @@ from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_er
 # Регистрация хендлеров
 from handlers import commands, registration, admin
 from handlers.course_editor import register_course_editor
-from handlers.admin_actions import register_admin_actions
+from handlers.admin_actions import register_admin_actions, set_review_request_function
+from handlers.reviews import register as register_reviews
 import os
 os.system('cls || clear')
 # Настройка логирования
@@ -44,6 +45,11 @@ try:
     admin.register(bot, logger)                 # меню админа + список заявок
     register_course_editor(bot, logger)        # редактор курсов
     register_admin_actions(bot, logger)        # действия с заявками
+    send_review_request = register_reviews(bot, logger)  # обработчики отзывов
+    
+    # Устанавливаем функцию отправки отзывов для admin_actions
+    set_review_request_function(send_review_request)
+    
     logger.info("✅ All handlers registered successfully")
 except Exception as e:
     log_error(logger, e, "Handler registration")

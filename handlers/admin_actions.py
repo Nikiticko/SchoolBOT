@@ -14,6 +14,13 @@ import utils.menu as menu
 cancel_reasons_buffer = {}
 finish_feedback_buffer = {}
 
+# Глобальная переменная для функции отправки отзывов
+send_review_request_func = None
+
+def set_review_request_function(func):
+    """Устанавливает функцию для отправки запросов на отзывы"""
+    global send_review_request_func
+    send_review_request_func = func
 
 def register_admin_actions(bot, logger):
 
@@ -106,6 +113,15 @@ def register_admin_actions(bot, logger):
                         f"✅ Ваш урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} прошёл успешно!\n\nОбратная связь: {comment}"
                     )
                     logger.info(f"Notification sent to user {tg_id} about lesson completion")
+                    
+                    # Отправляем запрос на отзыв через 30 секунд
+                    if send_review_request_func:
+                        try:
+                            send_review_request_func(bot, tg_id, app_id, course)
+                            logger.info(f"Review request scheduled for user {tg_id} for application {app_id}")
+                        except Exception as e:
+                            logger.error(f"Failed to schedule review request for user {tg_id}: {e}")
+                    
                 except Exception as e:
                     logger.error(f"Failed to notify user {tg_id} about lesson completion: {e}")
 

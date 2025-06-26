@@ -12,7 +12,10 @@ from data.db import (
     get_open_contacts,
     reply_to_contact,
     get_contact_by_id,
-    ban_user_by_contact
+    ban_user_by_contact,
+    get_all_reviews,
+    get_review_stats,
+    clear_reviews
 )
 from state.users import writing_ids
 from data.db import clear_archive
@@ -392,4 +395,173 @@ def register(bot, logger):
             logger.info(f"Admin {call.from_user.id} cleared all contacts")
         else:
             bot.send_message(call.message.chat.id, "❌ Очистка обращений отменена.")
-            logger.info(f"Admin {call.from_user.id} cancelled clear contacts")
+            logger.info(f"Admin {call.from_user.id} cancelled contacts clear")
+
+    # === ОБРАБОТЧИКИ ДЛЯ ОТЗЫВОВ ===
+    
+    @bot.message_handler(func=lambda m: m.text == "⭐ Отзывы" and is_admin(m.from_user.id))
+    def handle_reviews_menu(message):
+        """Показывает меню управления отзывами"""
+        try:
+            stats = get_review_stats()
+            total_reviews, avg_rating, positive_reviews, negative_reviews = stats
+            
+            # Проверяем, что avg_rating не None
+            avg_rating_display = f"{avg_rating:.1f}" if avg_rating is not None else "0.0"
+            
+            msg = (
+                "⭐ Управление отзывами\n\n"
+                f"📊 Статистика:\n"
+                f"• Всего отзывов: {total_reviews}\n"
+                f"• Средняя оценка: {avg_rating_display}/10\n"
+                f"• Положительных (8-10): {positive_reviews}\n"
+                f"• Отрицательных (1-5): {negative_reviews}\n\n"
+                "Выберите действие:\n\n"
+                "💡 Для очистки всех отзывов используйте команду /ClearReviews"
+            )
+            
+            markup = types.InlineKeyboardMarkup()
+            markup.add(
+                types.InlineKeyboardButton("📋 Все отзывы", callback_data="view_all_reviews"),
+                types.InlineKeyboardButton("📊 Статистика", callback_data="review_stats")
+            )
+            
+            bot.send_message(message.chat.id, msg, reply_markup=markup)
+            logger.info(f"Admin {message.from_user.id} opened reviews menu")
+            
+        except Exception as e:
+            logger.error(f"Error in handle_reviews_menu: {e}")
+    
+    @bot.callback_query_handler(func=lambda c: c.data == "view_all_reviews")
+    def handle_view_all_reviews(call):
+        """Показывает все отзывы"""
+        try:
+            reviews = get_all_reviews()
+            if not reviews:
+                bot.send_message(call.message.chat.id, "📭 Пока нет отзывов.")
+                return
+            batch_size = 10
+            for batch_start in range(0, len(reviews), batch_size):
+                msg = "📋 Все отзывы:\n\n"
+                for i, review in enumerate(reviews[batch_start:batch_start+batch_size], batch_start+1):
+                    review_id, rating, feedback, is_anonymous, parent_name, student_name, course, created_at, user_tg_id = review
+                    from datetime import datetime
+                    try:
+                        dt = datetime.fromisoformat(created_at)
+                        date_str = dt.strftime("%d.%m.%Y %H:%M")
+                    except:
+                        date_str = "недавно"
+                    stars = "⭐" * rating
+                    
+                    # Определяем автора отзыва
+                    if is_anonymous:
+                        author = "Анонимный"
+                    elif parent_name is None and student_name is None and course is None:
+                        # Заявка удалена, но отзыв не анонимный - показываем ID пользователя
+                        author = f"[Заявка удалена] ID: {user_tg_id}"
+                    else:
+                        author = f"{parent_name} ({student_name})"
+                    
+                    # Определяем курс
+                    if course is None:
+                        course = "[Заявка удалена]"
+                    
+                    feedback_display = feedback[:80] + ("..." if feedback and len(feedback) > 80 else "")
+                    if not feedback_display.strip():
+                        feedback_display = "Без текста, только оценка"
+                    
+                    msg += (
+                        f"{i}. {stars} ({rating}/10)\n"
+                        f"📘 Курс: {course}\n"
+                        f"👤 {author}\n"
+                        f"📝 {feedback_display}\n"
+                        f"📅 {date_str}\n"
+                        f"🆔 ID: {review_id}\n\n"
+                    )
+                bot.send_message(call.message.chat.id, msg)
+            logger.info(f"Admin {call.from_user.id} viewed all reviews")
+        except Exception as e:
+            logger.error(f"Error in handle_view_all_reviews: {e}")
+    
+    @bot.callback_query_handler(func=lambda c: c.data == "review_stats")
+    def handle_review_stats(call):
+        """Показывает детальную статистику отзывов"""
+        try:
+            stats = get_review_stats()
+            total_reviews, avg_rating, positive_reviews, negative_reviews = stats
+            
+            if total_reviews == 0:
+                bot.send_message(call.message.chat.id, "📭 Пока нет отзывов для анализа.")
+                return
+            
+            # Вычисляем проценты
+            positive_percent = (positive_reviews / total_reviews) * 100 if total_reviews > 0 else 0
+            negative_percent = (negative_reviews / total_reviews) * 100 if total_reviews > 0 else 0
+            neutral_percent = 100 - positive_percent - negative_percent
+            
+            # Проверяем, что avg_rating не None
+            avg_rating_display = f"{avg_rating:.1f}" if avg_rating is not None else "0.0"
+            avg_rating_value = avg_rating if avg_rating is not None else 0
+            
+            msg = (
+                "📊 Детальная статистика отзывов\n\n"
+                f"📈 Общие показатели:\n"
+                f"• Всего отзывов: {total_reviews}\n"
+                f"• Средняя оценка: {avg_rating_display}/10\n\n"
+                f"📊 Распределение:\n"
+                f"• Отлично (8-10): {positive_reviews} ({positive_percent:.1f}%)\n"
+                f"• Хорошо (6-7): {total_reviews - positive_reviews - negative_reviews} ({neutral_percent:.1f}%)\n"
+                f"• Плохо (1-5): {negative_reviews} ({negative_percent:.1f}%)\n\n"
+                f"🎯 Рекомендации:\n"
+            )
+            
+            if avg_rating_value >= 8:
+                msg += "🌟 Отличные результаты! Продолжайте в том же духе!"
+            elif avg_rating_value >= 6:
+                msg += "👍 Хорошие результаты. Есть возможности для улучшения."
+            else:
+                msg += "⚠️ Требуется внимание к качеству услуг."
+            
+            bot.send_message(call.message.chat.id, msg)
+            logger.info(f"Admin {call.from_user.id} viewed review statistics")
+            
+        except Exception as e:
+            logger.error(f"Error in handle_review_stats: {e}")
+    
+    @bot.message_handler(commands=["ClearReviews"])
+    def handle_clear_reviews_command(message):
+        """Команда для очистки отзывов"""
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command ClearReviews")
+            return
+        
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ Да, очистить", callback_data="confirm_clear_reviews"),
+            types.InlineKeyboardButton("❌ Нет", callback_data="cancel_clear_reviews")
+        )
+        bot.send_message(
+            message.chat.id,
+            "⚠️ Вы уверены, что хотите удалить все отзывы?\nЭто действие необратимо.",
+            reply_markup=markup
+        )
+        logger.info(f"Admin {message.from_user.id} initiated ClearReviews command")
+
+    @bot.callback_query_handler(func=lambda c: c.data in ["confirm_clear_reviews", "cancel_clear_reviews"])
+    def handle_clear_reviews_confirm(call):
+        """Подтверждает или отменяет очистку отзывов"""
+        try:
+            if not is_admin(call.from_user.id):
+                logger.warning(f"User {call.from_user.id} tried to confirm clear reviews without admin rights")
+                return
+                
+            if call.data == "confirm_clear_reviews":
+                clear_reviews()
+                bot.send_message(call.message.chat.id, "🧹 Все отзывы успешно удалены.")
+                logger.info(f"Admin {call.from_user.id} cleared all reviews")
+            else:
+                bot.send_message(call.message.chat.id, "❌ Очистка отзывов отменена.")
+                logger.info(f"Admin {call.from_user.id} cancelled reviews clear")
+                
+        except Exception as e:
+            logger.error(f"Error in handle_clear_reviews_confirm: {e}")
