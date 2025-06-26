@@ -235,7 +235,7 @@ def cancel_assigned_lesson(app_id):
         conn.commit()
 
 
-def archive_application(app_id: int, cancelled_by="user", cancel_reason="", archived_status="Заявка отменена"):
+def archive_application(app_id: int, cancelled_by="user", comment="", archived_status="Заявка отменена"):
     with get_connection() as conn:
         cursor = conn.cursor()
 
@@ -252,20 +252,20 @@ def archive_application(app_id: int, cancelled_by="user", cancel_reason="", arch
                 INSERT INTO archive (
                     tg_id, parent_name, student_name, age, contact, course,
                     lesson_date, lesson_link, status, created_at,
-                    cancelled_by, cancel_reason
+                    cancelled_by, comment
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 row[1], row[2], row[3], row[4], row[5], row[6],
                 row[7], row[8], archived_status, row[10],
-                cancelled_by, cancel_reason
+                cancelled_by, comment
             ))
         except Exception as e:
             print("🔥 [FATAL] Ошибка при вставке в archive:", e)
             print("🔥 Параметры:", (
                 row[1], row[2], row[3], row[4], row[5], row[6],
                 row[7], row[8], archived_status, row[10],
-                cancelled_by, cancel_reason
+                cancelled_by, comment
             ))
             raise
 
@@ -354,3 +354,17 @@ def get_all_archive():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM archive ORDER BY created_at DESC")
         return cursor.fetchall()
+
+def get_cancelled_count_by_tg_id(tg_id):
+    """Возвращает количество отменённых заявок и уроков пользователя (статусы 'Заявка отменена', 'Урок отменён')."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM archive WHERE tg_id = ? AND (status = 'Заявка отменена' OR status = 'Урок отменён')", (tg_id,))
+        return cursor.fetchone()[0]
+
+def get_finished_count_by_tg_id(tg_id):
+    """Возвращает количество завершённых уроков пользователя (статус 'Завершено')."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM archive WHERE tg_id = ? AND status = 'Завершено'", (tg_id,))
+        return cursor.fetchone()[0]

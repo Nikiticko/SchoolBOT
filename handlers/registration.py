@@ -8,7 +8,9 @@ from data.db import (
     get_application_by_tg_id,
     get_active_courses,
     get_archive_count_by_tg_id,
-    format_date_for_display
+    format_date_for_display,
+    get_cancelled_count_by_tg_id,
+    get_finished_count_by_tg_id
 )
 from utils.logger import log_user_action, log_error
 
@@ -24,22 +26,32 @@ def register(bot, logger):
         try:
             chat_id = message.chat.id
 
-            # 1. Архивный лимит
+            # 1. Проверка отмен
+            if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
+                bot.send_message(chat_id, "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.")
+                return
+
+            # 2. Проверка завершённых уроков
+            if get_finished_count_by_tg_id(str(chat_id)) >= 1:
+                bot.send_message(chat_id, "✅ Вы уже проходили пробный урок. Для дальнейших занятий свяжитесь с администратором.")
+                return
+
+            # 3. Архивный лимит
             if get_archive_count_by_tg_id(str(chat_id)) >= 2:
                 bot.send_message(chat_id, "🚫 Вы уже записывались несколько раз. Пожалуйста, свяжитесь с администратором.")
                 return
 
-            # 2. Наличие курсов
+            # 4. Наличие курсов
             if not get_active_courses():
                 bot.send_message(chat_id, "⚠️ Сейчас запись недоступна. Курсы временно неактивны.")
                 return
 
-            # 3. Текущая регистрация
+            # 5. Текущая регистрация
             if user_data.get(chat_id, {}).get("in_progress"):
                 bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
                 return
 
-            # 4. Уже есть активная заявка
+            # 6. Уже есть активная заявка
             app = get_application_by_tg_id(str(chat_id))
             if app:
                 course, date, link = app[6], app[7], app[8]

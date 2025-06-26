@@ -1,7 +1,7 @@
 # === handlers/commands.py ===
 from telebot import types
 from utils.menu import get_main_menu, get_admin_menu
-from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses
+from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive
 from handlers.admin import is_admin
 from utils.logger import log_user_action, log_error
 
@@ -29,21 +29,36 @@ def register(bot, logger):
     def _handle_my_lesson_logic(chat_id, show_menu=False):
         """Общая логика для обработки запроса информации о занятии"""
         try:
+            # Проверка отмен
+            if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
+                return "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.", show_menu
+
+            # Проверка завершённых уроков
+            if get_finished_count_by_tg_id(str(chat_id)) >= 1:
+                # Найти последнюю завершённую заявку в архиве
+                archive = get_all_archive()
+                for row in archive:
+                    if row[1] == str(chat_id) and row[9] == 'Завершено':
+                        course = row[6]
+                        student_name = row[3]
+                        parent_name = row[2]
+                        lesson_date = format_date_for_display(row[7])
+                        comment = row[12]
+                        msg = f"✅ Ваш пробный урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} уже прошёл.\n\nОбратная связь: {comment}"
+                        return msg, show_menu
+                return "✅ Ваш пробный урок уже прошёл.", show_menu
+
             app = get_application_by_tg_id(str(chat_id))
-            
             if not app:
                 return "Вы ещё не регистрировались. Нажмите «📋 Записаться».", show_menu
-            
             course = app[6]
             date = app[7]
             link = app[8]
-            
             if date and link:
                 formatted_date = format_date_for_display(date)
                 msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
             else:
                 msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
-            
             return msg, show_menu
         except Exception as e:
             log_error(logger, e, f"My lesson logic for user {chat_id}")

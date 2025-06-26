@@ -40,7 +40,7 @@ cursor.execute("""
         status TEXT,
         created_at DATETIME,
         cancelled_by TEXT,
-        cancel_reason TEXT
+        comment TEXT
     )
 """)
 

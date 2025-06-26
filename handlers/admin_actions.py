@@ -14,6 +14,7 @@ from state.users import writing_ids
 from handlers.admin import is_admin
 from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
 cancel_reasons_buffer = {}
+finish_feedback_buffer = {}
 
 
 def register_admin_actions(bot, logger):
@@ -48,11 +49,73 @@ def register_admin_actions(bot, logger):
     def handle_finish_status(call):
         try:
             app_id = int(call.data.split(":")[1])
-            update_application_status(app_id, "Завершено")
-            bot.edit_message_text("✅ Заявка завершена.", call.message.chat.id, call.message.message_id)
-            logger.info(f"Admin {call.from_user.id} finished application {app_id}")
+            finish_feedback_buffer[call.from_user.id] = {
+                "app_id": app_id,
+                "chat_id": call.message.chat.id,
+                "msg_id": call.message.message_id
+            }
+            bot.send_message(call.message.chat.id, "📝 Введите обратную связь по уроку (обязательно):", reply_markup=get_cancel_button())
+            bot.register_next_step_handler(call.message, receive_finish_feedback)
+            logger.info(f"Admin {call.from_user.id} started finishing application {app_id}")
         except Exception as e:
             logger.error(f"Error in handle_finish_status: {e}")
+
+    def receive_finish_feedback(message):
+        try:
+            # Проверяем отмену
+            if message.text == "🔙 Отмена":
+                if message.from_user.id in finish_feedback_buffer:
+                    finish_feedback_buffer.pop(message.from_user.id)
+                handle_cancel_action(bot, message, "урок", logger)
+                return
+
+            user_id = message.from_user.id
+            if user_id not in finish_feedback_buffer:
+                return
+
+            comment = message.text.strip()
+            if not comment:
+                bot.send_message(message.chat.id, "❗️ Обратная связь обязательна. Пожалуйста, введите комментарий:")
+                bot.register_next_step_handler(message, receive_finish_feedback)
+                return
+
+            info = finish_feedback_buffer.pop(user_id)
+            app_id = info["app_id"]
+            chat_id = info["chat_id"]
+            msg_id = info["msg_id"]
+
+            # Получаем данные заявки ДО архивирования
+            app = get_application_by_id(app_id)
+            if not app:
+                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+                return
+
+            success = archive_application(app_id, cancelled_by="admin", comment=comment, archived_status="Завершено")
+
+            if success:
+                bot.edit_message_text("✅ Заявка завершена и архивирована.", chat_id, msg_id)
+                bot.send_message(chat_id, "✅ Обратная связь сохранена и заявка завершена.", reply_markup=get_admin_menu())
+
+                # Отправляем уведомление пользователю
+                tg_id = app[1]
+                parent_name = app[2]
+                student_name = app[3]
+                course = app[6]
+                lesson_date = format_date_for_display(app[7])
+                try:
+                    bot.send_message(
+                        int(tg_id),
+                        f"✅ Ваш урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} прошёл успешно!\n\nОбратная связь: {comment}"
+                    )
+                    logger.info(f"Notification sent to user {tg_id} about lesson completion")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {tg_id} about lesson completion: {e}")
+
+                logger.info(f"Admin {user_id} finished application {app_id} with feedback: {comment}")
+            else:
+                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+        except Exception as e:
+            logger.error(f"Error in receive_finish_feedback: {e}")
 
     @bot.message_handler(func=lambda m: m.text == "❌ Отменить заявку" and is_admin(m.from_user.id))
     def handle_cancel_request(message):
@@ -118,7 +181,7 @@ def register_admin_actions(bot, logger):
                 bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
                 return
 
-            success = archive_application(app_id, cancelled_by="admin", cancel_reason=reason, archived_status="Заявка отменена")
+            success = archive_application(app_id, cancelled_by="admin", comment=reason, archived_status="Заявка отменена")
 
             if success:
                 bot.edit_message_text("❌ Заявка отменена и архивирована.", chat_id, msg_id)
@@ -127,7 +190,7 @@ def register_admin_actions(bot, logger):
                 # Отправляем уведомление пользователю
                 tg_id = app[1]
                 try:
-                    bot.send_message(int(tg_id), "⚠️ Ваша заявка была отменена. Вы можете подать новую заявку.")
+                    bot.send_message(int(tg_id), f"⚠️ Ваша заявка была отменена.\nПричина: {reason}\nВы можете подать новую заявку.")
                     logger.info(f"Notification sent to user {tg_id} about application cancellation")
                 except Exception as e:
                     logger.error(f"Failed to notify user {tg_id}: {e}")
@@ -207,7 +270,7 @@ def register_admin_actions(bot, logger):
                 bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
                 return
 
-            success = archive_application(app_id, cancelled_by="admin", cancel_reason=reason, archived_status="Урок отменён")
+            success = archive_application(app_id, cancelled_by="admin", comment=reason, archived_status="Урок отменён")
 
             if success:
                 bot.edit_message_text("🚫 Урок отменён и заявка архивирована.", chat_id, msg_id)
@@ -216,7 +279,7 @@ def register_admin_actions(bot, logger):
                 # Отправляем уведомление пользователю
                 tg_id = app[1]
                 try:
-                    bot.send_message(int(tg_id), "⚠️ Ваш урок был отменён. Вы можете записаться снова.")
+                    bot.send_message(int(tg_id), f"⚠️ Ваш урок был отменён.\nПричина: {reason}\nВы можете записаться снова.")
                     logger.info(f"Notification sent to user {tg_id} about lesson cancellation")
                 except Exception as e:
                     logger.error(f"Failed to notify user {tg_id}: {e}")
