@@ -1,9 +1,11 @@
 # === handlers/commands.py ===
 from telebot import types
-from utils.menu import get_main_menu, get_admin_menu
-from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive
+from utils.menu import get_main_menu, get_admin_menu, get_cancel_button
+from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application
 from handlers.admin import is_admin
 from utils.logger import log_user_action, log_error
+from state.users import user_data
+from config import ADMIN_ID
 
 
 def register(bot, logger):  
@@ -90,49 +92,225 @@ def register(bot, logger):
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson_button(message):
-        try:
-            msg, show_menu = _handle_my_lesson_logic(message.chat.id, show_menu=True)
-            if show_menu:
-                bot.send_message(message.chat.id, msg, reply_markup=get_main_menu())
-            else:
-                bot.send_message(message.chat.id, msg)
-            log_user_action(logger, message.from_user.id, "my_lesson_button")
-        except Exception as e:
-            log_error(logger, e, f"My lesson button for user {message.from_user.id}")
-
-    @bot.message_handler(func=lambda m: m.text == "ℹ️ О преподавателе")
-    def handle_about(message):
-        try:
-            bot.send_message(message.chat.id, "🧑‍🏫 Преподаватель: Никита\nОпыт: 3 года\nPython для детей 10–18 лет")
-            log_user_action(logger, message.from_user.id, "about_teacher")
-        except Exception as e:
-            log_error(logger, e, f"About teacher for user {message.from_user.id}")
-
-    @bot.message_handler(func=lambda m: m.text == "💰 Цены и форматы")
-    def handle_prices(message):
-        try:
-            bot.send_message(message.chat.id, "💰 Индивидуально: 600₽\n👥 Группа: 400₽\nФормат: Zoom/Discord")
-            log_user_action(logger, message.from_user.id, "prices_info")
-        except Exception as e:
-            log_error(logger, e, f"Prices info for user {message.from_user.id}")
-
-    @bot.message_handler(func=lambda m: m.text == "📚 Доступные курсы")
-    def handle_courses(message):
-        try:
-            courses = get_active_courses()
-            if not courses:
-                bot.send_message(message.chat.id, "Курсы временно недоступны.")
-                return
-
+        chat_id = message.chat.id
+        app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.send_message(chat_id, "Вы ещё не регистрировались. Нажмите «📋 Записаться».", reply_markup=get_main_menu())
+            return
+        course, date, link = app[6], app[7], app[8]
+        if not date and not link:
+            # Показываем заявку и кнопки
+            parent_name = app[2]
+            student_name = app[3]
+            age = app[4]
+            contact = app[5]
+            course = app[6]
+            msg = (
+                f"Ваша заявка на рассмотрении:\n"
+                f"👤 Родитель: {parent_name}\n"
+                f"🧒 Ученик: {student_name}\n"
+                f"🎂 Возраст: {age}\n"
+                f"📘 Курс: {course}\n"
+                f"📞 Контакт: {contact or 'не указан'}"
+            )
             markup = types.InlineKeyboardMarkup()
-            for course in courses:
-                course_id, name, description, active = course
-                markup.add(types.InlineKeyboardButton(name, callback_data=f"course_info:{course_id}"))
+            markup.add(
+                types.InlineKeyboardButton("✏️ Редактировать заявку", callback_data="edit_application"),
+                types.InlineKeyboardButton("❌ Отменить заявку", callback_data="cancel_application")
+            )
+            bot.send_message(chat_id, msg, reply_markup=markup)
+            return
+        # ... остальная логика (урок назначен или завершён)
 
-            bot.send_message(message.chat.id, "Выберите интересующий курс:", reply_markup=markup)
-            log_user_action(logger, message.from_user.id, "courses_list", f"available: {len(courses)}")
-        except Exception as e:
-            log_error(logger, e, f"Courses list for user {message.from_user.id}")
+    @bot.callback_query_handler(func=lambda c: c.data == "edit_application")
+    def handle_edit_application(call):
+        chat_id = call.message.chat.id
+        app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.send_message(chat_id, "Заявка не найдена.")
+            return
+        parent_name = app[2]
+        student_name = app[3]
+        age = app[4]
+        contact = app[5]
+        course = app[6]
+        user = call.from_user
+        fields = [
+            ("Имя родителя", "parent_name"),
+            ("Имя ученика", "student_name"),
+            ("Возраст", "age"),
+            ("Курс", "course")
+        ]
+        # Контакт можно редактировать только если это не username
+        if not user.username:
+            fields.append(("Контакт (номер телефона)", "contact"))
+        markup = types.InlineKeyboardMarkup()
+        for label, key in fields:
+            markup.add(types.InlineKeyboardButton(label, callback_data=f"edit_field:{key}"))
+        bot.send_message(chat_id, "Что вы хотите изменить?", reply_markup=markup)
+        user_data[chat_id] = {
+            "edit_app": True,
+            "app_id": app[0],
+            "parent_name": parent_name,
+            "student_name": student_name,
+            "age": age,
+            "contact": contact,
+            "course": course
+        }
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("edit_field:"))
+    def handle_edit_field(call):
+        chat_id = call.message.chat.id
+        field = call.data.split(":")[1]
+        prompts = {
+            "parent_name": "Введите новое имя родителя:",
+            "student_name": "Введите новое имя ученика:",
+            "age": "Введите новый возраст:",
+            "course": "Выберите новый курс:",
+            "contact": "Введите новый номер телефона:"
+        }
+        if field == "course":
+            courses = get_active_courses()
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+            for c in courses:
+                markup.add(c[1])
+            markup.add("🔙 Отмена")
+            bot.send_message(chat_id, prompts[field], reply_markup=markup)
+        else:
+            bot.send_message(chat_id, prompts[field], reply_markup=get_cancel_button())
+        user_data[chat_id]["edit_field"] = field
+        bot.register_next_step_handler(call.message, process_edit_field)
+
+    def process_edit_field(message):
+        chat_id = message.chat.id
+        if message.text == "🔙 Отмена":
+            bot.send_message(chat_id, "Редактирование отменено.", reply_markup=get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        field = user_data[chat_id].get("edit_field")
+        value = message.text.strip()
+        # Валидация
+        if field == "age":
+            if not value.isdigit() or not (3 <= int(value) <= 99):
+                bot.send_message(chat_id, "Возраст должен быть числом от 3 до 99.")
+                return bot.register_next_step_handler(message, process_edit_field)
+        if field == "course":
+            courses = [c[1] for c in get_active_courses()]
+            if value not in courses:
+                bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.")
+                return bot.register_next_step_handler(message, process_edit_field)
+        if field in ("parent_name", "student_name"):
+            if not value or not value.replace(" ", "").isalpha():
+                bot.send_message(chat_id, "Имя должно содержать только буквы.")
+                return bot.register_next_step_handler(message, process_edit_field)
+        if field == "contact":
+            import re
+            if not re.match(r"^\+?\d{10,15}$", value):
+                bot.send_message(chat_id, "Введите корректный номер телефона (10-15 цифр, можно с +)")
+                return bot.register_next_step_handler(message, process_edit_field)
+        # Сохраняем новое значение
+        user_data[chat_id][field] = value
+        # Показываем обновлённую заявку и просим подтвердить
+        app = user_data[chat_id]
+        msg = (
+            f"Проверьте обновлённые данные:\n"
+            f"👤 Родитель: {app['parent_name']}\n"
+            f"🧒 Ученик: {app['student_name']}\n"
+            f"🎂 Возраст: {app['age']}\n"
+            f"📘 Курс: {app['course']}\n"
+            f"📞 Контакт: {app['contact'] or 'не указан'}"
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_edit_application"))
+        markup.add(types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_edit_application"))
+        bot.send_message(chat_id, msg, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "confirm_edit_application")
+    def handle_confirm_edit_application(call):
+        chat_id = call.message.chat.id
+        app = user_data.get(chat_id)
+        if not app:
+            bot.send_message(chat_id, "Данные не найдены.")
+            return
+        # Обновляем заявку в БД
+        import sqlite3
+        conn = sqlite3.connect("data/database.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE applications SET parent_name=?, student_name=?, age=?, contact=?, course=? WHERE id=?
+        """, (app["parent_name"], app["student_name"], app["age"], app["contact"], app["course"], app["app_id"]))
+        conn.commit()
+        conn.close()
+        # Уведомляем пользователя и админа
+        bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=get_main_menu())
+        from handlers.admin import notify_admin_new_application
+        notify_admin_new_application(bot, app)
+        user_data.pop(chat_id, None)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "cancel_edit_application")
+    def handle_cancel_edit_application(call):
+        chat_id = call.message.chat.id
+        user_data.pop(chat_id, None)
+        bot.send_message(chat_id, "Редактирование отменено.", reply_markup=get_main_menu())
+
+    @bot.callback_query_handler(func=lambda c: c.data == "cancel_application")
+    def handle_cancel_application(call):
+        chat_id = call.message.chat.id
+        # Запрашиваем причину отмены
+        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены заявки:", reply_markup=get_cancel_button())
+        user_data[chat_id] = user_data.get(chat_id, {})
+        user_data[chat_id]["cancel_stage"] = True
+        bot.register_next_step_handler(call.message, process_cancel_reason)
+
+    def process_cancel_reason(message):
+        chat_id = message.chat.id
+        # Проверяем, что это сообщение, а не callback
+        if hasattr(message, 'text') and message.text == "🔙 Отмена":
+            bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        reason = getattr(message, 'text', '').strip()
+        # Подтверждение отмены
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_cancel_application"))
+        markup.add(types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_cancel_application"))
+        user_data[chat_id]["cancel_reason"] = reason
+        bot.send_message(chat_id, f"Вы уверены, что хотите отменить заявку?\nПричина: {reason}", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "confirm_cancel_application")
+    def handle_confirm_cancel_application(call):
+        chat_id = call.message.chat.id
+        from data.db import get_application_by_tg_id, archive_application
+        app = get_application_by_tg_id(str(chat_id))
+        reason = user_data.get(chat_id, {}).get("cancel_reason", "")
+        if app:
+            archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Заявка отменена")
+        # Удаляем заявку из БД
+        import sqlite3
+        conn = sqlite3.connect("data/database.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(chat_id),))
+        conn.commit()
+        conn.close()
+        bot.send_message(chat_id, "Ваша заявка отменена.", reply_markup=get_main_menu())
+        # Подробное уведомление админу
+        parent_name = app[2] if app else '-'
+        student_name = app[3] if app else '-'
+        course = app[6] if app else '-'
+        msg = (
+            f"❌ Пользователь отменил заявку\n"
+            f"👤 Родитель: {parent_name}\n"
+            f"🧒 Ученик: {student_name}\n"
+            f"📘 Курс: {course}\n"
+            f"Причина: {reason}"
+        )
+        bot.send_message(ADMIN_ID, msg)
+        user_data.pop(chat_id, None)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "cancel_cancel_application")
+    def handle_cancel_cancel_application(call):
+        chat_id = call.message.chat.id
+        bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=get_main_menu())
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("course_info:"))
     def show_course_info(call):

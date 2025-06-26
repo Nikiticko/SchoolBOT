@@ -87,7 +87,7 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
         
-        conn.commit()
+        conn.commit() 
 
 
 def add_application(tg_id, parent_name, student_name, age, contact, course):
