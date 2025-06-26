@@ -340,3 +340,17 @@ def validate_date_format(date_str):
         return False, f"Некорректная дата: {str(e)}"
     except Exception as e:
         return False, f"Ошибка при проверке даты: {str(e)}"
+
+def get_all_applications():
+    """Возвращает все заявки из таблицы applications."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM applications ORDER BY created_at DESC")
+        return cursor.fetchall()
+
+def get_all_archive():
+    """Возвращает все записи из архива."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM archive ORDER BY created_at DESC")
+        return cursor.fetchall()

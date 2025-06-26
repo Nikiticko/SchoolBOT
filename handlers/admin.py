@@ -6,11 +6,17 @@ from data.db import (
     update_application_lesson,
     get_application_by_id,
     format_date_for_display,
-    validate_date_format
+    validate_date_format,
+    get_all_applications,
+    get_all_archive
 )
 from state.users import writing_ids
 from data.db import clear_archive
 from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
+import openpyxl
+from openpyxl.utils import get_column_letter
+import tempfile
+import os
 
 
 def is_admin(user_id):
@@ -211,3 +217,54 @@ def register(bot, logger):
         markup.add("❄ Заморозить курс", "📝 Отредактировать курс")
         markup.add("🔙 Назад")
         bot.send_message(message.chat.id, "🎓 Меню редактирования курсов:", reply_markup=markup)
+
+    @bot.message_handler(func=lambda m: m.text == "⬇️ Выгрузить данные" and is_admin(m.from_user.id))
+    def handle_export_data(message):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("Заявки", callback_data="export_applications"),
+            types.InlineKeyboardButton("Архив", callback_data="export_archive")
+        )
+        bot.send_message(message.chat.id, "Что выгрузить?", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data in ["export_applications", "export_archive"])
+    def handle_export_choice(call):
+        if call.data == "export_applications":
+            data = get_all_applications()
+            filename = "applications_export.xlsx"
+            headers = [
+                "ID", "TG ID", "Родитель", "Ученик", "Возраст", "Контакт", "Курс",
+                "Дата урока", "Ссылка", "Статус", "Создано"
+            ]
+        else:
+            data = get_all_archive()
+            filename = "archive_export.xlsx"
+            headers = [
+                "ID", "TG ID", "Родитель", "Ученик", "Возраст", "Контакт", "Курс",
+                "Дата урока", "Ссылка", "Статус", "Создано", "Кем отменено", "Причина отмены"
+            ]
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(headers)
+        for row in data:
+            ws.append(row)
+        # Автоширина столбцов
+        for col in ws.columns:
+            max_length = 0
+            col_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if cell.value:
+                        max_length = max(max_length, len(str(cell.value)))
+                except:
+                    pass
+            ws.column_dimensions[col_letter].width = max_length + 2
+        # Сохраняем во временный файл
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            wb.save(tmp.name)
+            tmp_path = tmp.name
+        with open(tmp_path, "rb") as f:
+            bot.send_document(call.message.chat.id, f, visible_file_name=filename)
+        os.remove(tmp_path)
+        bot.answer_callback_query(call.id, "Выгрузка завершена")

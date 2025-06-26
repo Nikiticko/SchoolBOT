@@ -15,6 +15,7 @@ def get_admin_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📋 Список заявок", "📚 Редактировать курсы")
     markup.row("✅ Завершить заявку", "❌ Отменить заявку", "🚫 Отменить урок", "🕓 Перенести урок")
+    markup.add("⬇️ Выгрузить данные")
     return markup
 
 def get_cancel_button():
