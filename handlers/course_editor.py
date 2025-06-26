@@ -1,7 +1,8 @@
 from telebot import types
 from data.db import get_all_courses, add_course, delete_course, update_course, toggle_course_active
 from handlers.admin import is_admin
-from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
+import utils.menu as menu
+from utils.menu import get_cancel_button, handle_cancel_action
 
 def register_course_editor(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "➕ Добавить курс" and is_admin(m.from_user.id))
@@ -35,7 +36,7 @@ def register_course_editor(bot, logger):
                 
             desc = message.text.strip()
             add_course(name, desc)
-            bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=get_admin_menu())
+            bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=menu.get_admin_menu())
             logger.info(f"Admin {message.from_user.id} added new course: {name}")
         except Exception as e:
             logger.error(f"Error in save_new_course: {e}")
@@ -145,7 +146,7 @@ def register_course_editor(bot, logger):
                 
             desc = message.text.strip()
             update_course(course_id, name, desc)
-            bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=get_admin_menu())
+            bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=menu.get_admin_menu())
             logger.info(f"Admin {message.from_user.id} updated course {course_id} to: {name}")
         except Exception as e:
             logger.error(f"Error in apply_edit: {e}")
@@ -153,7 +154,7 @@ def register_course_editor(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "🔙 Назад" and is_admin(m.from_user.id))
     def handle_back_to_admin_panel(message):
         try:
-            bot.send_message(message.chat.id, "🔙 Возврат в админ-панель", reply_markup=get_admin_menu())
+            bot.send_message(message.chat.id, "🔙 Возврат в админ-панель", reply_markup=menu.get_admin_menu())
             logger.info(f"Admin {message.from_user.id} returned to admin panel")
         except Exception as e:
             logger.error(f"Error in handle_back_to_admin_panel: {e}")

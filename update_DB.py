@@ -52,6 +52,21 @@ cursor.execute("""
     )
 """)
 
+cursor.execute("""
+    CREATE TABLE contacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_tg_id TEXT,
+        user_contact TEXT,
+        message TEXT,
+        admin_reply TEXT,
+        status TEXT DEFAULT 'Ожидает ответа',
+        created_at DATETIME DEFAULT (datetime('now', 'localtime')),
+        reply_at DATETIME,
+        banned BOOLEAN DEFAULT 0,
+        ban_reason TEXT
+    )
+""")
+
 # Создаем индексы для улучшения производительности
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
 cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")

@@ -10,7 +10,7 @@ from data.db import (
 )
 from state.users import writing_ids
 from handlers.admin import is_admin
-from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
+import utils.menu as menu
 cancel_reasons_buffer = {}
 finish_feedback_buffer = {}
 
@@ -52,7 +52,7 @@ def register_admin_actions(bot, logger):
                 "chat_id": call.message.chat.id,
                 "msg_id": call.message.message_id
             }
-            bot.send_message(call.message.chat.id, "📝 Введите обратную связь по уроку (обязательно):", reply_markup=get_cancel_button())
+            bot.send_message(call.message.chat.id, "📝 Введите обратную связь по уроку (обязательно):", reply_markup=menu.get_cancel_button())
             bot.register_next_step_handler(call.message, receive_finish_feedback)
             logger.info(f"Admin {call.from_user.id} started finishing application {app_id}")
         except Exception as e:
@@ -64,7 +64,7 @@ def register_admin_actions(bot, logger):
             if message.text == "🔙 Отмена":
                 if message.from_user.id in finish_feedback_buffer:
                     finish_feedback_buffer.pop(message.from_user.id)
-                handle_cancel_action(bot, message, "урок", logger)
+                menu.handle_cancel_action(bot, message, "урок", logger)
                 return
 
             user_id = message.from_user.id
@@ -92,7 +92,7 @@ def register_admin_actions(bot, logger):
 
             if success:
                 bot.edit_message_text("✅ Заявка завершена и архивирована.", chat_id, msg_id)
-                bot.send_message(chat_id, "✅ Обратная связь сохранена и заявка завершена.", reply_markup=get_admin_menu())
+                bot.send_message(chat_id, "✅ Обратная связь сохранена и заявка завершена.", reply_markup=menu.get_admin_menu())
 
                 # Отправляем уведомление пользователю
                 tg_id = app[1]
@@ -147,7 +147,7 @@ def register_admin_actions(bot, logger):
                 "chat_id": call.message.chat.id,
                 "msg_id": call.message.message_id
             }
-            bot.send_message(call.message.chat.id, "❓ Укажите причину отмены заявки:", reply_markup=get_cancel_button())
+            bot.send_message(call.message.chat.id, "❓ Укажите причину отмены заявки:", reply_markup=menu.get_cancel_button())
             bot.register_next_step_handler(call.message, receive_cancel_reason)
             logger.info(f"Admin {call.from_user.id} started canceling application {app_id}")
         except Exception as e:
@@ -159,7 +159,7 @@ def register_admin_actions(bot, logger):
             if message.text == "🔙 Отмена":
                 if message.from_user.id in cancel_reasons_buffer:
                     cancel_reasons_buffer.pop(message.from_user.id)
-                handle_cancel_action(bot, message, "отмена_заявки", logger)
+                menu.handle_cancel_action(bot, message, "отмена_заявки", logger)
                 return
                 
             user_id = message.from_user.id
@@ -183,7 +183,7 @@ def register_admin_actions(bot, logger):
 
             if success:
                 bot.edit_message_text("❌ Заявка отменена и архивирована.", chat_id, msg_id)
-                bot.send_message(chat_id, "✅ Причина отмены заявки сохранена.", reply_markup=get_admin_menu())
+                bot.send_message(chat_id, "✅ Причина отмены заявки сохранена.", reply_markup=menu.get_admin_menu())
 
                 # Отправляем уведомление пользователю
                 tg_id = app[1]
@@ -236,7 +236,7 @@ def register_admin_actions(bot, logger):
                 "chat_id": call.message.chat.id,
                 "msg_id": call.message.message_id
             }
-            bot.send_message(call.message.chat.id, "❓ Укажите причину отмены урока:", reply_markup=get_cancel_button())
+            bot.send_message(call.message.chat.id, "❓ Укажите причину отмены урока:", reply_markup=menu.get_cancel_button())
             bot.register_next_step_handler(call.message, receive_lesson_cancel_reason)
             logger.info(f"Admin {call.from_user.id} started canceling lesson for application {app_id}")
         except Exception as e:
@@ -248,7 +248,7 @@ def register_admin_actions(bot, logger):
             if message.text == "🔙 Отмена":
                 if message.from_user.id in lesson_cancel_buffer:
                     lesson_cancel_buffer.pop(message.from_user.id)
-                handle_cancel_action(bot, message, "урок", logger)
+                menu.handle_cancel_action(bot, message, "урок", logger)
                 return
                 
             user_id = message.from_user.id
@@ -272,7 +272,7 @@ def register_admin_actions(bot, logger):
 
             if success:
                 bot.edit_message_text("🚫 Урок отменён и заявка архивирована.", chat_id, msg_id)
-                bot.send_message(chat_id, "✅ Причина отмены урока сохранена.", reply_markup=get_admin_menu())
+                bot.send_message(chat_id, "✅ Причина отмены урока сохранена.", reply_markup=menu.get_admin_menu())
 
                 # Отправляем уведомление пользователю
                 tg_id = app[1]
@@ -318,7 +318,7 @@ def register_admin_actions(bot, logger):
     def handle_reschedule_callback(call):
         app_id = int(call.data.split(":")[1])
         writing_ids.add(call.from_user.id)
-        bot.send_message(call.message.chat.id, f"🕓 Введите новую дату и время для заявки #{app_id} (например: 22.06 17:30):", reply_markup=get_cancel_button())
+        bot.send_message(call.message.chat.id, f"🕓 Введите новую дату и время для заявки #{app_id} (например: 22.06 17:30):", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(call.message, lambda m: get_new_date(m, app_id))
 
     def get_new_date(message, app_id):
@@ -328,7 +328,7 @@ def register_admin_actions(bot, logger):
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             writing_ids.discard(message.from_user.id)
-            handle_cancel_action(bot, message, "урок", logger)
+            menu.handle_cancel_action(bot, message, "урок", logger)
             return
         
         date_text = message.text.strip()
@@ -340,7 +340,7 @@ def register_admin_actions(bot, logger):
             bot.send_message(
                 message.chat.id, 
                 f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:30):",
-                reply_markup=get_cancel_button()
+                reply_markup=menu.get_cancel_button()
             )
             bot.register_next_step_handler(message, lambda m: get_new_date(m, app_id))
             return
@@ -350,7 +350,7 @@ def register_admin_actions(bot, logger):
         user_data['valid_date'] = result
         message._user_data = user_data
         
-        bot.send_message(message.chat.id, "🔗 Введите новую ссылку на урок:", reply_markup=get_cancel_button())
+        bot.send_message(message.chat.id, "🔗 Введите новую ссылку на урок:", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(message, lambda m: apply_reschedule(m, app_id, date_text))
 
     def apply_reschedule(message, app_id, date_text):
@@ -360,7 +360,7 @@ def register_admin_actions(bot, logger):
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             writing_ids.discard(message.from_user.id)
-            handle_cancel_action(bot, message, "урок", logger)
+            menu.handle_cancel_action(bot, message, "урок", logger)
             return
         
         link = message.text.strip()
@@ -378,7 +378,7 @@ def register_admin_actions(bot, logger):
             update_application_lesson(app_id, date_text, link)
             formatted_date = date_text
         
-        bot.send_message(message.chat.id, f"✅ Урок перенесён на:\n📅 {formatted_date}\n🔗 {link}", reply_markup=get_admin_menu())
+        bot.send_message(message.chat.id, f"✅ Урок перенесён на:\n📅 {formatted_date}\n🔗 {link}", reply_markup=menu.get_admin_menu())
 
         app = get_application_by_id(app_id)
         if app:

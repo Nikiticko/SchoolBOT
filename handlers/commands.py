@@ -1,7 +1,7 @@
 # === handlers/commands.py ===
 from telebot import types
-from utils.menu import get_main_menu, get_admin_menu, get_cancel_button
-from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact
+import utils.menu as menu
+from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason
 from handlers.admin import is_admin
 from utils.logger import log_user_action, log_error
 from state.users import user_data
@@ -14,10 +14,10 @@ def register(bot, logger):
     def handle_start(message):
         try:
             if is_admin(message.from_user.id):
-                markup = get_admin_menu()
+                markup = menu.get_admin_menu()
                 welcome = "👋 Добро пожаловать, администратор!\n\nВыберите действие из админ-меню:"
             else:
-                markup = get_main_menu()
+                markup = menu.get_main_menu()
                 welcome = "👋 Добро пожаловать! Я бот для записи на занятия.\n\n📋 Выберите действие:"
             bot.send_message(
                 message.chat.id,
@@ -118,7 +118,7 @@ def register(bot, logger):
         chat_id = message.chat.id
         app = get_application_by_tg_id(str(chat_id))
         if not app:
-            bot.send_message(chat_id, "Вы ещё не регистрировались. Нажмите «📋 Записаться».", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "Вы ещё не регистрировались. Нажмите «📋 Записаться».", reply_markup=menu.get_main_menu())
             return
         course, date, link = app[6], app[7], app[8]
         if not date and not link:
@@ -207,14 +207,14 @@ def register(bot, logger):
             markup.add("🔙 Отмена")
             bot.send_message(chat_id, prompts[field], reply_markup=markup)
         else:
-            bot.send_message(chat_id, prompts[field], reply_markup=get_cancel_button())
+            bot.send_message(chat_id, prompts[field], reply_markup=menu.get_cancel_button())
         user_data[chat_id]["edit_field"] = field
         bot.register_next_step_handler(call.message, process_edit_field)
 
     def process_edit_field(message):
         chat_id = message.chat.id
         if message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Редактирование отменено.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "Редактирование отменено.", reply_markup=menu.get_main_menu())
             user_data.pop(chat_id, None)
             return
         field = user_data[chat_id].get("edit_field")
@@ -272,7 +272,7 @@ def register(bot, logger):
         conn.commit()
         conn.close()
         # Уведомляем пользователя и админа
-        bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=menu.get_main_menu())
         from handlers.admin import notify_admin_new_application
         notify_admin_new_application(bot, app)
         user_data.pop(chat_id, None)
@@ -281,13 +281,13 @@ def register(bot, logger):
     def handle_cancel_edit_application(call):
         chat_id = call.message.chat.id
         user_data.pop(chat_id, None)
-        bot.send_message(chat_id, "Редактирование отменено.", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "Редактирование отменено.", reply_markup=menu.get_main_menu())
 
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_application")
     def handle_cancel_application(call):
         chat_id = call.message.chat.id
         # Запрашиваем причину отмены
-        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены заявки:", reply_markup=get_cancel_button())
+        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены заявки:", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = user_data.get(chat_id, {})
         user_data[chat_id]["cancel_stage"] = True
         bot.register_next_step_handler(call.message, process_cancel_reason)
@@ -296,7 +296,7 @@ def register(bot, logger):
         chat_id = message.chat.id
         # Проверяем, что это сообщение, а не callback
         if hasattr(message, 'text') and message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_main_menu())
             user_data.pop(chat_id, None)
             return
         reason = getattr(message, 'text', '').strip()
@@ -322,7 +322,7 @@ def register(bot, logger):
         cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(chat_id),))
         conn.commit()
         conn.close()
-        bot.send_message(chat_id, "Ваша заявка отменена.", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "Ваша заявка отменена.", reply_markup=menu.get_main_menu())
         # Подробное уведомление админу
         parent_name = app[2] if app else '-'
         student_name = app[3] if app else '-'
@@ -340,7 +340,7 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_cancel_application")
     def handle_cancel_cancel_application(call):
         chat_id = call.message.chat.id
-        bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_main_menu())
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("course_info:"))
     def show_course_info(call):
@@ -353,10 +353,10 @@ def register(bot, logger):
                 name = course[1]
                 description = course[2]
                 msg = f"📘 *{name}*\n\n📝 {description}"
-                bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=get_main_menu(call.message.chat.id))
+                bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=menu.get_main_menu(call.message.chat.id))
                 log_user_action(logger, call.from_user.id, "course_info_viewed", f"course: {name}")
             else:
-                bot.send_message(call.message.chat.id, "⚠️ Курс не найден.", reply_markup=get_main_menu(call.message.chat.id))
+                bot.send_message(call.message.chat.id, "⚠️ Курс не найден.", reply_markup=menu.get_main_menu(call.message.chat.id))
                 log_user_action(logger, call.from_user.id, "course_not_found", f"course_id: {course_id}")
         except Exception as e:
             log_error(logger, e, f"Course info for user {call.from_user.id}")
@@ -364,7 +364,7 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_lesson_user")
     def handle_cancel_lesson_user(call):
         chat_id = call.message.chat.id
-        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены урока:", reply_markup=get_cancel_button())
+        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены урока:", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = user_data.get(chat_id, {})
         user_data[chat_id]["cancel_lesson_stage"] = True
         bot.register_next_step_handler(call.message, process_cancel_lesson_reason)
@@ -372,7 +372,7 @@ def register(bot, logger):
     def process_cancel_lesson_reason(message):
         chat_id = message.chat.id
         if hasattr(message, 'text') and message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_main_menu())
             user_data.pop(chat_id, None)
             return
         reason = getattr(message, 'text', '').strip()
@@ -398,7 +398,7 @@ def register(bot, logger):
             cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(chat_id),))
             conn.commit()
             conn.close()
-            bot.send_message(chat_id, "Ваш урок отменён.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "Ваш урок отменён.", reply_markup=menu.get_main_menu())
             # Уведомление админу
             parent_name = app[2] if app else '-'
             student_name = app[3] if app else '-'
@@ -416,7 +416,7 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_cancel_lesson_user")
     def handle_cancel_cancel_lesson_user(call):
         chat_id = call.message.chat.id
-        bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_main_menu())
 
     @bot.message_handler(func=lambda m: m.text == "🆘 Обратиться к админу")
     def handle_contact_admin(message):
@@ -425,15 +425,19 @@ def register(bot, logger):
         chat_id = message.chat.id
         user = message.from_user
         if is_user_banned(str(chat_id)):
-            bot.send_message(chat_id, "🚫 Вы заблокированы за спам. Обращения невозможны.", reply_markup=get_main_menu())
+            reason = get_ban_reason(str(chat_id))
+            msg = "🚫 Вы заблокированы и не можете отправлять обращения."
+            if reason:
+                msg += f"\nПричина: {reason}"
+            bot.send_message(chat_id, msg, reply_markup=menu.get_main_menu())
             return
         last_time = get_last_contact_time(str(chat_id))
         if last_time:
             last_dt = datetime.datetime.fromisoformat(last_time)
             if (datetime.datetime.now() - last_dt).total_seconds() < 20*60:
-                bot.send_message(chat_id, "⏳ Вы можете отправлять обращения не чаще, чем раз в 20 минут.", reply_markup=get_main_menu())
+                bot.send_message(chat_id, "⏳ Вы можете отправлять обращения не чаще, чем раз в 20 минут.", reply_markup=menu.get_main_menu())
                 return
-        bot.send_message(chat_id, "✍️ Опишите ваш вопрос или прикрепите файл (фото, документ, голосовое, видео).\n\nДля отмены нажмите '🔙 Отмена'.", reply_markup=get_cancel_button())
+        bot.send_message(chat_id, "✍️ Опишите ваш вопрос или прикрепите файл (фото, документ, голосовое, видео).\n\nДля отмены нажмите '🔙 Отмена'.", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = {"contact_fsm": True}
         bot.register_next_step_handler(message, process_contact_message)
 
@@ -442,7 +446,7 @@ def register(bot, logger):
         chat_id = message.chat.id
         user = message.from_user
         if hasattr(message, 'text') and message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Обращение отменено.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "Обращение отменено.", reply_markup=menu.get_main_menu())
             user_data.pop(chat_id, None)
             return
         # Определяем контакт
@@ -471,7 +475,7 @@ def register(bot, logger):
         else:
             msg_text = message.text or "(без текста)"
         contact_id = add_contact(str(chat_id), contact, msg_text)
-        bot.send_message(chat_id, "✅ Ваше обращение отправлено админу. Ожидайте ответа.", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "✅ Ваше обращение отправлено админу. Ожидайте ответа.", reply_markup=menu.get_main_menu())
         # Уведомление админу
         admin_msg = f"🆘 Новое обращение от пользователя {contact}\nID: {chat_id}\n\nТекст: {msg_text}\n\nДля ответа используйте меню обращений."
         bot.send_message(ADMIN_ID, admin_msg)

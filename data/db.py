@@ -92,7 +92,8 @@ def init_db():
                 status TEXT DEFAULT 'Ожидает ответа',
                 created_at DATETIME DEFAULT (datetime('now', 'localtime')),
                 reply_at DATETIME,
-                banned BOOLEAN DEFAULT 0
+                banned BOOLEAN DEFAULT 0,
+                ban_reason TEXT
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_tg_id ON contacts(user_tg_id)")
@@ -402,10 +403,13 @@ def reply_to_contact(contact_id, reply_text):
         """, (reply_text, contact_id))
         conn.commit()
 
-def ban_user_by_contact(user_tg_id):
+def ban_user_by_contact(user_tg_id, reason=None):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("UPDATE contacts SET banned = 1 WHERE user_tg_id = ?", (user_tg_id,))
+        if reason:
+            cursor.execute("UPDATE contacts SET banned = 1, ban_reason = ? WHERE user_tg_id = ?", (reason, user_tg_id))
+        else:
+            cursor.execute("UPDATE contacts SET banned = 1 WHERE user_tg_id = ?", (user_tg_id,))
         conn.commit()
 
 def is_user_banned(user_tg_id):
@@ -414,6 +418,13 @@ def is_user_banned(user_tg_id):
         cursor.execute("SELECT banned FROM contacts WHERE user_tg_id = ? ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
         row = cursor.fetchone()
         return bool(row[0]) if row else False
+
+def get_ban_reason(user_tg_id):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT ban_reason FROM contacts WHERE user_tg_id = ? AND banned = 1 ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
 
 def clear_contacts():
     with get_connection() as conn:

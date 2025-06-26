@@ -16,6 +16,8 @@ def get_admin_menu():
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📋 Список заявок", "📚 Редактировать курсы")
     markup.row("✅ Завершить заявку", "❌ Отменить заявку", "🚫 Отменить урок", "🕓 Перенести урок")
+    markup.add("📨 Обращения пользователей")
+
     markup.add("⬇️ Выгрузить данные")
     return markup
 
@@ -55,3 +57,11 @@ def handle_cancel_action(bot, message, action_type="регистрация", log
     # Логируем отмену
     if logger:
         logger.info(f"User {user_id} cancelled {action_type}")
+
+def get_course_editor_menu():
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add("➕ Добавить курс", "🗑 Удалить курс")
+    markup.add("❄ Заморозить курс", "📝 Отредактировать курс")
+    markup.add("👁 Просмотреть все курсы")
+    markup.add("🔙 Назад")
+    return markup

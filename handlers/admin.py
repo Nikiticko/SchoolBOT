@@ -16,8 +16,7 @@ from data.db import (
 )
 from state.users import writing_ids
 from data.db import clear_archive
-from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action
-import openpyxl
+import utils.menu as menu
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
@@ -142,7 +141,7 @@ def register(bot, logger):
     def handle_assign_callback(call):
         app_id = int(call.data.split(":")[1])
         writing_ids.add(call.from_user.id)
-        bot.send_message(call.message.chat.id, f"📅 Введите дату и время урока для заявки #{app_id} (например: 22.06 17:00):", reply_markup=get_cancel_button())
+        bot.send_message(call.message.chat.id, f"📅 Введите дату и время урока для заявки #{app_id} (например: 22.06 17:00):", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(call.message, lambda m: get_link(m, app_id))
 
     def get_link(message, app_id):
@@ -152,7 +151,7 @@ def register(bot, logger):
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             writing_ids.discard(message.from_user.id)
-            handle_cancel_action(bot, message, "урок", logger)
+            menu.handle_cancel_action(bot, message, "урок", logger)
             return
         
         date_text = message.text.strip()
@@ -164,7 +163,7 @@ def register(bot, logger):
             bot.send_message(
                 message.chat.id, 
                 f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:00):",
-                reply_markup=get_cancel_button()
+                reply_markup=menu.get_cancel_button()
             )
             bot.register_next_step_handler(message, lambda m: get_link(m, app_id))
             return
@@ -174,7 +173,7 @@ def register(bot, logger):
         user_data['valid_date'] = result
         message._user_data = user_data
         
-        bot.send_message(message.chat.id, "🔗 Введите ссылку на урок:", reply_markup=get_cancel_button())
+        bot.send_message(message.chat.id, "🔗 Введите ссылку на урок:", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(message, lambda m: finalize_lesson(m, app_id, date_text))
 
     def finalize_lesson(message, app_id, date_text):
@@ -184,7 +183,7 @@ def register(bot, logger):
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             writing_ids.discard(message.from_user.id)
-            handle_cancel_action(bot, message, "урок", logger)
+            menu.handle_cancel_action(bot, message, "урок", logger)
             return
         
         link = message.text.strip()
@@ -202,7 +201,7 @@ def register(bot, logger):
             update_application_lesson(app_id, date_text, link)
             formatted_date = date_text
         
-        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {formatted_date}\n🔗 {link}", reply_markup=get_admin_menu())
+        bot.send_message(message.chat.id, f"✅ Урок назначен!\n📅 {formatted_date}\n🔗 {link}", reply_markup=menu.get_admin_menu())
 
         app = get_application_by_id(app_id)
         if app:
@@ -222,12 +221,7 @@ def register(bot, logger):
 
     @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
     def handle_course_menu(message):
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("➕ Добавить курс", "🗑 Удалить курс")
-        markup.add("❄ Заморозить курс", "📝 Отредактировать курс")
-        markup.add("👁 Просмотреть все курсы")
-        markup.add("📨 Обращения пользователей")
-        markup.add("🔙 Назад")
+        markup = menu.get_course_editor_menu()
         bot.send_message(message.chat.id, "🎓 Меню редактирования курсов:", reply_markup=markup)
 
     @bot.message_handler(func=lambda m: m.text == "⬇️ Выгрузить данные" and is_admin(m.from_user.id))
@@ -297,10 +291,10 @@ def register(bot, logger):
     def handle_contacts_menu(message):
         contacts = get_open_contacts()
         if not contacts:
-            bot.send_message(message.chat.id, "✅ Нет новых обращений.", reply_markup=get_admin_menu())
+            bot.send_message(message.chat.id, "✅ Нет новых обращений.", reply_markup=menu.get_admin_menu())
             return
         for c in contacts:
-            contact_id, user_tg_id, user_contact, msg, admin_reply, status, created_at, reply_at, banned = c
+            contact_id, user_tg_id, user_contact, msg, admin_reply, status, created_at, reply_at, banned, ban_reason = c
             # Проверяем, есть ли вложение
             file_match = re.match(r"\[Вложение: (\w+), file_id: ([\w\-_]+)\](.*)", msg, re.DOTALL)
             if file_match:
@@ -340,24 +334,37 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("reply_contact:"))
     def handle_reply_contact(call):
         contact_id = int(call.data.split(":")[1])
-        bot.send_message(call.message.chat.id, "✍️ Введите ответ пользователю:", reply_markup=get_cancel_button())
+        bot.send_message(call.message.chat.id, "✍️ Введите ответ пользователю:", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(call.message, lambda m: process_admin_reply(m, contact_id))
 
     def process_admin_reply(message, contact_id):
         if message.text == "🔙 Отмена":
-            bot.send_message(message.chat.id, "Ответ отменён.", reply_markup=get_admin_menu())
+            bot.send_message(message.chat.id, "Ответ отменён.", reply_markup=menu.get_admin_menu())
             return
         reply_to_contact(contact_id, message.text)
         contact = get_contact_by_id(contact_id)
         user_tg_id = contact[1]
-        bot.send_message(message.chat.id, "✅ Ответ отправлен пользователю.", reply_markup=get_admin_menu())
+        bot.send_message(message.chat.id, "✅ Ответ отправлен пользователю.", reply_markup=menu.get_admin_menu())
         bot.send_message(int(user_tg_id), f"📨 Ответ от администратора:\n\n{message.text}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("ban_contact:"))
     def handle_ban_contact(call):
         user_tg_id = call.data.split(":")[1]
-        ban_user_by_contact(user_tg_id)
-        bot.send_message(call.message.chat.id, f"Пользователь {user_tg_id} заблокирован для обращений.", reply_markup=get_admin_menu())
+        bot.send_message(call.message.chat.id, "✍️ Введите причину бана пользователя:", reply_markup=menu.get_cancel_button())
+        bot.register_next_step_handler(call.message, lambda m: process_ban_reason(m, user_tg_id))
+
+    def process_ban_reason(message, user_tg_id):
+        if message.text == "🔙 Отмена":
+            bot.send_message(message.chat.id, "Бан отменён.", reply_markup=menu.get_admin_menu())
+            return
+        reason = message.text.strip()
+        from data.db import ban_user_by_contact
+        ban_user_by_contact(user_tg_id, reason)
+        bot.send_message(message.chat.id, f"Пользователь {user_tg_id} заблокирован для обращений.\nПричина: {reason}", reply_markup=menu.get_admin_menu())
+        try:
+            bot.send_message(int(user_tg_id), f"🚫 Вы были заблокированы для обращений к админу.\nПричина: {reason}")
+        except Exception as e:
+            logger.error(f"Не удалось уведомить пользователя о бане: {e}")
 
     @bot.message_handler(commands=["ClearContacts"])
     def handle_clear_contacts(message):
