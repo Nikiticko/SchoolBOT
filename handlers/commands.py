@@ -120,7 +120,14 @@ def register(bot, logger):
             )
             bot.send_message(chat_id, msg, reply_markup=markup)
             return
-        # ... остальная логика (урок назначен или завершён)
+        # Если урок назначен, показываем детали и кнопку отмены урока
+        if date and link:
+            formatted_date = format_date_for_display(date)
+            msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data="cancel_lesson_user"))
+            bot.send_message(chat_id, msg, reply_markup=markup)
+            return
 
     @bot.callback_query_handler(func=lambda c: c.data == "edit_application")
     def handle_edit_application(call):
@@ -330,3 +337,60 @@ def register(bot, logger):
                 log_user_action(logger, call.from_user.id, "course_not_found", f"course_id: {course_id}")
         except Exception as e:
             log_error(logger, e, f"Course info for user {call.from_user.id}")
+
+    @bot.callback_query_handler(func=lambda c: c.data == "cancel_lesson_user")
+    def handle_cancel_lesson_user(call):
+        chat_id = call.message.chat.id
+        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены урока:", reply_markup=get_cancel_button())
+        user_data[chat_id] = user_data.get(chat_id, {})
+        user_data[chat_id]["cancel_lesson_stage"] = True
+        bot.register_next_step_handler(call.message, process_cancel_lesson_reason)
+
+    def process_cancel_lesson_reason(message):
+        chat_id = message.chat.id
+        if hasattr(message, 'text') and message.text == "🔙 Отмена":
+            bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        reason = getattr(message, 'text', '').strip()
+        # Подтверждение
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_cancel_lesson_user"))
+        markup.add(types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_cancel_lesson_user"))
+        user_data[chat_id]["cancel_lesson_reason"] = reason
+        bot.send_message(chat_id, f"Вы уверены, что хотите отменить урок?\nПричина: {reason}", reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "confirm_cancel_lesson_user")
+    def handle_confirm_cancel_lesson_user(call):
+        chat_id = call.message.chat.id
+        from data.db import get_application_by_tg_id, archive_application
+        app = get_application_by_tg_id(str(chat_id))
+        reason = user_data.get(chat_id, {}).get("cancel_lesson_reason", "")
+        if app:
+            archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Урок отменён")
+            # Удаляем заявку из БД
+            import sqlite3
+            conn = sqlite3.connect("data/database.db")
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(chat_id),))
+            conn.commit()
+            conn.close()
+            bot.send_message(chat_id, "Ваш урок отменён.", reply_markup=get_main_menu())
+            # Уведомление админу
+            parent_name = app[2] if app else '-'
+            student_name = app[3] if app else '-'
+            course = app[6] if app else '-'
+            msg = (
+                f"🚫 Пользователь отменил урок\n"
+                f"👤 Родитель: {parent_name}\n"
+                f"🧒 Ученик: {student_name}\n"
+                f"📘 Курс: {course}\n"
+                f"Причина: {reason}"
+            )
+            bot.send_message(ADMIN_ID, msg)
+        user_data.pop(chat_id, None)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "cancel_cancel_lesson_user")
+    def handle_cancel_cancel_lesson_user(call):
+        chat_id = call.message.chat.id
+        bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=get_main_menu())
