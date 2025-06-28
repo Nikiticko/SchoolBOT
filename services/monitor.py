@@ -1,20 +1,24 @@
 import threading
 import time
-from state.users import pending
+from state.state_manager import state_manager
 from telebot import types
 from utils.menu import get_main_menu
 from data.db import get_application_by_tg_id, update_application_lesson, get_upcoming_lessons, mark_reminder_sent
 from config import CHECK_INTERVAL
 from utils.logger import log_error, log_user_action
+from utils.exceptions import MonitoringException, handle_exception
 
 def monitor_loop(bot, logger):
     """Основной цикл мониторинга заявок и напоминаний"""
     while True:
         try:
+            # Получаем все ожидающие уведомления из StateManager
+            pending = state_manager.get_all_pending()
             logger.debug(f"🔍 Checking {len(pending)} pending notifications...")
             
-            for user_id, info in list(pending.items()):
+            for user_id_str, info in list(pending.items()):
                 try:
+                    user_id = int(user_id_str)
                     app = get_application_by_tg_id(str(user_id))
                     if not app or len(app) < 9:
                         logger.warning(f"⚠️ Invalid application data for user {user_id}")
@@ -32,14 +36,15 @@ def monitor_loop(bot, logger):
                         )
                         bot.send_message(user_id, msg, reply_markup=get_main_menu())
                         update_application_lesson(app[0], date, link)
-                        pending.pop(user_id, None)
+                        state_manager.remove_pending(user_id)
                         logger.info(f"✅ Lesson notification sent to user {user_id}")
                         log_user_action(logger, user_id, "lesson_notification_sent", f"course: {course}")
 
                 except Exception as e:
-                    log_error(logger, e, f"Processing user {user_id} in monitoring")
+                    error_msg = handle_exception(e, logger, f"Processing user {user_id_str} in monitoring")
+                    logger.error(f"❌ {error_msg}")
                     # Удаляем проблемного пользователя из очереди
-                    pending.pop(user_id, None)
+                    state_manager.remove_pending(int(user_id_str))
 
             # --- Напоминания о предстоящем уроке ---
             try:
@@ -94,12 +99,14 @@ def monitor_loop(bot, logger):
                     except Exception as e:
                         logger.error(f"[REMINDER] Failed to send to {tg_id}: {e}")
             except Exception as e:
-                logger.error(f"[REMINDER] Error in reminder logic: {e}")
+                error_msg = handle_exception(e, logger, "Reminder logic")
+                logger.error(f"[REMINDER] {error_msg}")
 
             time.sleep(CHECK_INTERVAL)
 
         except Exception as e:
-            log_error(logger, e, "Monitoring loop")
+            error_msg = handle_exception(e, logger, "Monitoring loop")
+            logger.error(f"❌ {error_msg}")
             time.sleep(CHECK_INTERVAL)
 
 def start_monitoring(bot, logger):
@@ -109,5 +116,6 @@ def start_monitoring(bot, logger):
         thread.start()
         logger.info("✅ Monitoring thread started successfully")
     except Exception as e:
-        log_error(logger, e, "Starting monitoring thread")
-        raise
+        error_msg = handle_exception(e, logger, "Starting monitoring thread")
+        logger.error(f"❌ {error_msg}")
+        raise MonitoringException(f"Failed to start monitoring: {error_msg}")

@@ -11,6 +11,11 @@ from config import API_TOKEN, CHECK_INTERVAL
 from data.db import init_db, migrate_database
 from services.monitor import start_monitoring
 from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_error
+from utils.exceptions import (
+    BotException, DatabaseException, ConfigurationException, 
+    TelegramAPIException, handle_exception
+)
+from state.state_manager import state_manager
 
 # Регистрация хендлеров
 from handlers import commands, registration, admin
@@ -19,6 +24,7 @@ from handlers.admin_actions import register_admin_actions, set_review_request_fu
 from handlers.reviews import register as register_reviews
 import os
 os.system('cls || clear')
+
 # Настройка логирования
 logger = setup_logger('bot')
 
@@ -35,7 +41,8 @@ try:
     
     logger.info("✅ Bot and database initialized successfully")
 except Exception as e:
-    log_error(logger, e, "Bot initialization")
+    error_msg = handle_exception(e, logger, "Bot initialization")
+    logger.error(f"❌ {error_msg}")
     raise
 
 # Запуск мониторинга заявок
@@ -43,7 +50,8 @@ try:
     start_monitoring(bot, logger)
     logger.info(f"✅ Monitoring started with interval {CHECK_INTERVAL}s")
 except Exception as e:
-    log_error(logger, e, "Monitoring startup")
+    error_msg = handle_exception(e, logger, "Monitoring startup")
+    logger.error(f"❌ {error_msg}")
 
 # Регистрация всех обработчиков
 try:
@@ -59,7 +67,8 @@ try:
     
     logger.info("✅ All handlers registered successfully")
 except Exception as e:
-    log_error(logger, e, "Handler registration")
+    error_msg = handle_exception(e, logger, "Handler registration")
+    logger.error(f"❌ {error_msg}")
 
 # Логируем запуск бота
 log_bot_startup(logger)
@@ -71,6 +80,8 @@ try:
 except KeyboardInterrupt:
     logger.info("⚠️ Bot stopped by user (Ctrl+C)")
     log_bot_shutdown(logger)
+    # Останавливаем StateManager
+    state_manager.stop()
 except Exception as e:
     # Обработка ошибки 409 (Conflict: terminated by other getUpdates request)
     import telebot
@@ -78,7 +89,11 @@ except Exception as e:
         logger.error("❌ [FATAL] 409 Conflict: Бот уже запущен где-то ещё! Завершаем работу.")
         print("❌ [FATAL] 409 Conflict: Бот уже запущен где-то ещё! Завершаем работу.")
         log_bot_shutdown(logger)
+        state_manager.stop()
         import sys
         sys.exit(1)
-    log_error(logger, e, "Bot polling")
+    
+    error_msg = handle_exception(e, logger, "Bot polling")
+    logger.error(f"❌ {error_msg}")
     log_bot_shutdown(logger)
+    state_manager.stop()

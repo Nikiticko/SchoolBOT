@@ -4,14 +4,18 @@ from typing import Dict, Set, Optional, Any
 from config import MAX_MESSAGE_LENGTH, MAX_NAME_LENGTH, RATE_LIMIT_PER_MINUTE, BAN_THRESHOLD
 from utils.logger import log_error
 from utils.security_logger import security_logger
+from utils.exceptions import (
+    SecurityException, UserBannedException, RateLimitException, 
+    ValidationException, handle_exception
+)
+from state.state_manager import state_manager
 
 class SecurityManager:
     """Менеджер безопасности для валидации и rate limiting"""
     
     def __init__(self):
-        self.rate_limit_data: Dict[int, list] = {}  # user_id -> [timestamps]
-        self.banned_users: Set[int] = set()
-        self.suspicious_activities: Dict[int, int] = {}  # user_id -> count
+        # Используем StateManager вместо локальных переменных
+        self.logger = security_logger
     
     def validate_message_length(self, text: str, max_length: int = MAX_MESSAGE_LENGTH) -> bool:
         """Валидация длины сообщения"""
@@ -86,18 +90,18 @@ class SecurityManager:
         """Проверка rate limit для пользователя"""
         current_time = time.time()
         
-        if user_id not in self.rate_limit_data:
-            self.rate_limit_data[user_id] = []
+        # Получаем данные из StateManager
+        rate_limit_data = state_manager.get_rate_limit_data(user_id)
         
         # Удаляем старые записи (старше 1 минуты)
-        self.rate_limit_data[user_id] = [
-            timestamp for timestamp in self.rate_limit_data[user_id]
+        rate_limit_data = [
+            timestamp for timestamp in rate_limit_data
             if current_time - timestamp < 60
         ]
         
         # Проверяем лимит
-        if len(self.rate_limit_data[user_id]) >= RATE_LIMIT_PER_MINUTE:
-            remaining_time = int(60 - (current_time - self.rate_limit_data[user_id][0]))
+        if len(rate_limit_data) >= RATE_LIMIT_PER_MINUTE:
+            remaining_time = int(60 - (current_time - rate_limit_data[0]))
             
             # Логируем превышение rate limit
             security_logger.log_rate_limit_exceeded(
@@ -110,16 +114,17 @@ class SecurityManager:
             return False, remaining_time
         
         # Добавляем текущий запрос
-        self.rate_limit_data[user_id].append(current_time)
+        rate_limit_data.append(current_time)
+        state_manager.set_rate_limit_data(user_id, rate_limit_data)
         return True, 0
     
     def is_user_banned(self, user_id: int) -> bool:
         """Проверка, забанен ли пользователь"""
-        return user_id in self.banned_users
+        return state_manager.is_user_banned(user_id)
     
     def ban_user(self, user_id: int, reason: str = "Нарушение правил"):
         """Бан пользователя"""
-        self.banned_users.add(user_id)
+        state_manager.add_banned_user(user_id)
         
         # Логируем бан
         security_logger.log_user_banned(user_id, "unknown", reason, "system")
@@ -128,20 +133,19 @@ class SecurityManager:
     
     def record_suspicious_activity(self, user_id: int, activity_type: str):
         """Запись подозрительной активности"""
-        if user_id not in self.suspicious_activities:
-            self.suspicious_activities[user_id] = 0
-        
-        self.suspicious_activities[user_id] += 1
+        current_count = state_manager.get_suspicious_count(user_id)
+        new_count = current_count + 1
+        state_manager.increment_suspicious_count(user_id)
         
         # Логируем подозрительную активность
         security_logger.log_suspicious_activity(
             user_id, 
             "unknown", 
             activity_type, 
-            f"Count: {self.suspicious_activities[user_id]}/{BAN_THRESHOLD}"
+            f"Count: {new_count}/{BAN_THRESHOLD}"
         )
         
-        if self.suspicious_activities[user_id] >= BAN_THRESHOLD:
+        if new_count >= BAN_THRESHOLD:
             self.ban_user(user_id, f"Множественные нарушения: {activity_type}")
             return True
         
@@ -199,32 +203,35 @@ def validate_user_input(text: str, input_type: str = "message") -> tuple[bool, s
             return security_manager.validate_message_length(sanitized_text)
     
     except Exception as e:
-        log_error(None, e, f"Error in validate_user_input for type {input_type}")
-        return False, "Ошибка валидации"
+        # Логируем ошибку валидации
+        log_error(security_logger, e, f"Validation error for type: {input_type}")
+        return False, "Ошибка валидации данных"
 
 def check_user_security(user_id: int, action_type: str = "message") -> tuple[bool, str]:
     """Проверка безопасности пользователя"""
     try:
         # Проверка бана
         if security_manager.is_user_banned(user_id):
-            return False, "Вы заблокированы"
+            raise UserBannedException(user_id)
         
         # Проверка rate limit
-        rate_ok, remaining_time = security_manager.check_rate_limit(user_id)
-        if not rate_ok:
-            return False, f"Слишком много запросов. Попробуйте через {remaining_time} секунд"
+        allowed, remaining_time = security_manager.check_rate_limit(user_id)
+        if not allowed:
+            raise RateLimitException(user_id, remaining_time)
         
         return True, ""
-    
+        
+    except (UserBannedException, RateLimitException) as e:
+        # Возвращаем ошибку для обработки
+        return False, str(e)
     except Exception as e:
-        log_error(None, e, f"Error in check_user_security for user {user_id}")
+        # Логируем неожиданную ошибку
+        log_error(security_logger, e, f"Security check error for user {user_id}")
         return False, "Ошибка проверки безопасности"
 
 def log_security_event(user_id: int, username: str, event_type: str, details: Dict[str, Any] = None):
     """Логирование события безопасности"""
     try:
-        if details is None:
-            details = {}
-        security_logger.log_security_event(event_type, user_id, username, details)
+        security_logger.log_security_event(user_id, username, event_type, details or {})
     except Exception as e:
-        log_error(None, e, f"Error logging security event for user {user_id}") 
+        log_error(security_logger, e, f"Security event logging error for user {user_id}") 
