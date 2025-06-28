@@ -1,13 +1,17 @@
 # === handlers/commands.py ===
 from telebot import types
 import utils.menu as menu
-from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason
+from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason, update_application, delete_application_by_tg_id
 from handlers.admin import is_admin
-from utils.logger import log_user_action, log_error
+from utils.logger import log_user_action, log_error, setup_logger
 from state.users import user_data
 from config import ADMIN_ID
 from utils.security import check_user_security, validate_user_input, security_manager
 
+def register_handlers(bot):
+    """Регистрация обработчиков команд"""
+    logger = setup_logger('commands')
+    register(bot, logger)
 
 def register(bot, logger):  
 
@@ -310,14 +314,14 @@ def register(bot, logger):
             bot.send_message(chat_id, "Данные не найдены.")
             return
         # Обновляем заявку в БД
-        import sqlite3
-        conn = sqlite3.connect("data/database.db")
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE applications SET parent_name=?, student_name=?, age=?, contact=?, course=? WHERE id=?
-        """, (app["parent_name"], app["student_name"], app["age"], app["contact"], app["course"], app["app_id"]))
-        conn.commit()
-        conn.close()
+        update_application(
+            app["app_id"], 
+            app["parent_name"], 
+            app["student_name"], 
+            app["age"], 
+            app["contact"], 
+            app["course"]
+        )
         # Уведомляем пользователя и админа
         bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=menu.get_main_menu())
         from handlers.admin import notify_admin_new_application
@@ -357,18 +361,12 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "confirm_cancel_application")
     def handle_confirm_cancel_application(call):
         chat_id = call.message.chat.id
-        from data.db import get_application_by_tg_id, archive_application
         app = get_application_by_tg_id(str(chat_id))
         reason = user_data.get(chat_id, {}).get("cancel_reason", "")
         if app:
             archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Заявка отменена")
         # Удаляем заявку из БД
-        import sqlite3
-        conn = sqlite3.connect("data/database.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(chat_id),))
-        conn.commit()
-        conn.close()
+        delete_application_by_tg_id(chat_id)
         bot.send_message(chat_id, "Ваша заявка отменена.", reply_markup=menu.get_main_menu())
         # Подробное уведомление админу
         parent_name = app[2] if app else '-'
@@ -433,18 +431,12 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "confirm_cancel_lesson_user")
     def handle_confirm_cancel_lesson_user(call):
         chat_id = call.message.chat.id
-        from data.db import get_application_by_tg_id, archive_application
         app = get_application_by_tg_id(str(chat_id))
         reason = user_data.get(chat_id, {}).get("cancel_lesson_reason", "")
         if app:
             archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Урок отменён")
             # Удаляем заявку из БД
-            import sqlite3
-            conn = sqlite3.connect("data/database.db")
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(chat_id),))
-            conn.commit()
-            conn.close()
+            delete_application_by_tg_id(chat_id)
             bot.send_message(chat_id, "Ваш урок отменён.", reply_markup=menu.get_main_menu())
             # Уведомление админу
             parent_name = app[2] if app else '-'

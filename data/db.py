@@ -74,6 +74,14 @@ def init_db():
                 reminder_sent BOOLEAN DEFAULT 0
             )
         """)
+        
+        # Индексы для applications (добавляем новые)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_tg_id ON applications(tg_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_lesson_date ON applications(lesson_date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_created_at ON applications(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_applications_course ON applications(course)")
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS courses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,6 +90,11 @@ def init_db():
                 active BOOLEAN DEFAULT 1
             )
         """)
+        
+        # Индексы для courses
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_courses_active ON courses(active)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_courses_name ON courses(name)")
+        
         # Новая таблица обращений
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS contacts (
@@ -99,6 +112,8 @@ def init_db():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_user_tg_id ON contacts(user_tg_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_created_at ON contacts(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_contacts_banned ON contacts(banned)")
         
         # Таблица отзывов
         cursor.execute("""
@@ -110,12 +125,48 @@ def init_db():
                 feedback TEXT,
                 is_anonymous BOOLEAN DEFAULT 0,
                 created_at DATETIME DEFAULT (datetime('now', 'localtime')),
-                FOREIGN KEY (application_id) REFERENCES applications(id)
+                FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_application_id ON reviews(application_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_user_tg_id ON reviews(user_tg_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_rating ON reviews(rating)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_created_at ON reviews(created_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reviews_is_anonymous ON reviews(is_anonymous)")
+        
+        # Таблица архива (если не существует)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS archive (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tg_id TEXT,
+                parent_name TEXT,
+                student_name TEXT,
+                age TEXT,
+                contact TEXT,
+                course TEXT,
+                lesson_date DATETIME,
+                lesson_link TEXT,
+                status TEXT,
+                created_at DATETIME,
+                archived_at DATETIME,
+                cancelled_by TEXT,
+                comment TEXT
+            )
+        """)
+        
+        # --- Добавляем колонку archived_at, если её нет (для старых БД) ---
+        cursor.execute("PRAGMA table_info(archive)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'archived_at' not in columns:
+            cursor.execute("ALTER TABLE archive ADD COLUMN archived_at DATETIME")
+            cursor.execute("UPDATE archive SET archived_at = datetime('now', 'localtime') WHERE archived_at IS NULL")
+        
+        # Индексы для archive
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_tg_id ON archive(tg_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_status ON archive(status)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_archived_at ON archive(archived_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_archive_cancelled_by ON archive(cancelled_by)")
+        
         conn.commit()
 
 
@@ -132,7 +183,9 @@ def get_application_by_tg_id(tg_id):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM applications
+            SELECT id, tg_id, parent_name, student_name, age, contact, course, 
+                   lesson_date, lesson_link, status, created_at, reminder_sent
+            FROM applications
             WHERE tg_id = ?
             ORDER BY created_at DESC LIMIT 1
         """, (tg_id,))
@@ -142,7 +195,9 @@ def get_pending_applications():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM applications
+            SELECT id, tg_id, parent_name, student_name, age, contact, course, 
+                   lesson_date, lesson_link, status, created_at, reminder_sent
+            FROM applications
             WHERE lesson_date IS NULL AND lesson_link IS NULL
             ORDER BY created_at DESC
         """)
@@ -154,7 +209,10 @@ def update_application_lesson(app_id, lesson_date, lesson_link):
         
         # Конвертируем строку даты в datetime объект, если необходимо
         if isinstance(lesson_date, str):
-            lesson_date = parse_date_string(lesson_date)
+            parsed_date = parse_date_string(lesson_date)
+            if parsed_date is None:
+                raise ValueError(f"Неверный формат даты: {lesson_date}")
+            lesson_date = parsed_date
         
         cursor.execute("""
             UPDATE applications
@@ -169,14 +227,14 @@ def update_application_lesson(app_id, lesson_date, lesson_link):
 def get_active_courses():
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM courses WHERE active = 1 ORDER BY id DESC")
+        cursor.execute("SELECT id, name, description, active FROM courses WHERE active = 1 ORDER BY id DESC")
         return cursor.fetchall()
 
 
 def get_all_courses():
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM courses ORDER BY id DESC")
+        cursor.execute("SELECT id, name, description, active FROM courses ORDER BY id DESC")
         return cursor.fetchall()
 
 def add_course(name, description):
@@ -213,6 +271,13 @@ def toggle_course_active(course_id):
         """, (course_id,))
         conn.commit()
 
+def clear_courses():
+    """Очищает все курсы"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM courses")
+        conn.commit()
+
 
 
 
@@ -227,7 +292,11 @@ def clear_applications():
 def get_application_by_id(app_id):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM applications WHERE id = ?", (app_id,))
+        cursor.execute("""
+            SELECT id, tg_id, parent_name, student_name, age, contact, course, 
+                   lesson_date, lesson_link, status, created_at, reminder_sent
+            FROM applications WHERE id = ?
+        """, (app_id,))
         return cursor.fetchone()
 
 
@@ -235,7 +304,9 @@ def get_assigned_applications():
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM applications
+            SELECT id, tg_id, parent_name, student_name, age, contact, course, 
+                   lesson_date, lesson_link, status, created_at, reminder_sent
+            FROM applications
             WHERE lesson_date IS NOT NULL AND lesson_link IS NOT NULL
             ORDER BY created_at DESC
         """)
@@ -351,28 +422,43 @@ def get_all_applications():
     """Возвращает все заявки из таблицы applications."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM applications ORDER BY created_at DESC")
+        cursor.execute("""
+            SELECT id, tg_id, parent_name, student_name, age, contact, course, 
+                   lesson_date, lesson_link, status, created_at, reminder_sent
+            FROM applications ORDER BY created_at DESC
+        """)
         return cursor.fetchall()
 
 def get_all_archive():
     """Возвращает все записи из архива."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM archive ORDER BY created_at DESC")
+        cursor.execute("""
+            SELECT id, tg_id, parent_name, student_name, age, contact, course,
+                   lesson_date, lesson_link, status, created_at, archived_at, 
+                   cancelled_by, comment
+            FROM archive ORDER BY archived_at DESC
+        """)
         return cursor.fetchall()
 
 def get_cancelled_count_by_tg_id(tg_id):
     """Возвращает количество отменённых заявок и уроков пользователя (статусы 'Заявка отменена', 'Урок отменён')."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM archive WHERE tg_id = ? AND (status = 'Заявка отменена' OR status = 'Урок отменён')", (tg_id,))
+        cursor.execute("""
+            SELECT COUNT(*) FROM archive 
+            WHERE tg_id = ? AND (status = 'Заявка отменена' OR status = 'Урок отменён')
+        """, (tg_id,))
         return cursor.fetchone()[0]
 
 def get_finished_count_by_tg_id(tg_id):
     """Возвращает количество завершённых уроков пользователя (статус 'Завершено')."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM archive WHERE tg_id = ? AND status = 'Завершено'", (tg_id,))
+        cursor.execute("""
+            SELECT COUNT(*) FROM archive 
+            WHERE tg_id = ? AND status = 'Завершено'
+        """, (tg_id,))
         return cursor.fetchone()[0]
 
 # --- Функции для работы с обращениями ---
@@ -389,26 +475,45 @@ def add_contact(user_tg_id, user_contact, message):
 def get_last_contact_time(user_tg_id):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT created_at FROM contacts WHERE user_tg_id = ? ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
+        cursor.execute("""
+            SELECT created_at FROM contacts 
+            WHERE user_tg_id = ? 
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_tg_id,))
         row = cursor.fetchone()
         return row[0] if row else None
 
 def get_open_contacts():
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM contacts WHERE status = 'Ожидает ответа' ORDER BY created_at ASC")
+        cursor.execute("""
+            SELECT id, user_tg_id, user_contact, message, admin_reply, status, 
+                   created_at, reply_at, banned, ban_reason
+            FROM contacts 
+            WHERE status = 'Ожидает ответа' 
+            ORDER BY created_at ASC
+        """)
         return cursor.fetchall()
 
 def get_all_contacts():
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM contacts ORDER BY created_at DESC")
+        cursor.execute("""
+            SELECT id, user_tg_id, user_contact, message, admin_reply, status, 
+                   created_at, reply_at, banned, ban_reason
+            FROM contacts 
+            ORDER BY created_at DESC
+        """)
         return cursor.fetchall()
 
 def get_contact_by_id(contact_id):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,))
+        cursor.execute("""
+            SELECT id, user_tg_id, user_contact, message, admin_reply, status, 
+                   created_at, reply_at, banned, ban_reason
+            FROM contacts WHERE id = ?
+        """, (contact_id,))
         return cursor.fetchone()
 
 def reply_to_contact(contact_id, reply_text):
@@ -425,22 +530,38 @@ def ban_user_by_contact(user_tg_id, reason=None):
     with get_connection() as conn:
         cursor = conn.cursor()
         if reason:
-            cursor.execute("UPDATE contacts SET banned = 1, ban_reason = ? WHERE user_tg_id = ?", (reason, user_tg_id))
+            cursor.execute("""
+                UPDATE contacts 
+                SET banned = 1, ban_reason = ? 
+                WHERE user_tg_id = ?
+            """, (reason, user_tg_id))
         else:
-            cursor.execute("UPDATE contacts SET banned = 1 WHERE user_tg_id = ?", (user_tg_id,))
+            cursor.execute("""
+                UPDATE contacts 
+                SET banned = 1 
+                WHERE user_tg_id = ?
+            """, (user_tg_id,))
         conn.commit()
 
 def is_user_banned(user_tg_id):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT banned FROM contacts WHERE user_tg_id = ? ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
+        cursor.execute("""
+            SELECT banned FROM contacts 
+            WHERE user_tg_id = ? 
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_tg_id,))
         row = cursor.fetchone()
         return bool(row[0]) if row else False
 
 def get_ban_reason(user_tg_id):
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT ban_reason FROM contacts WHERE user_tg_id = ? AND banned = 1 ORDER BY created_at DESC LIMIT 1", (user_tg_id,))
+        cursor.execute("""
+            SELECT ban_reason FROM contacts 
+            WHERE user_tg_id = ? AND banned = 1 
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_tg_id,))
         row = cursor.fetchone()
         return row[0] if row else None
 
@@ -457,7 +578,9 @@ def get_upcoming_lessons(minutes=30):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT * FROM applications
+            SELECT id, tg_id, parent_name, student_name, age, contact, course, 
+                   lesson_date, lesson_link, status, created_at, reminder_sent
+            FROM applications
             WHERE lesson_date IS NOT NULL
               AND lesson_link IS NOT NULL
               AND reminder_sent = 0
@@ -587,3 +710,147 @@ def clear_reviews():
         cursor = conn.cursor()
         cursor.execute("DELETE FROM reviews")
         conn.commit()
+
+def update_application(app_id, parent_name, student_name, age, contact, course):
+    """Обновляет данные заявки"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE applications 
+            SET parent_name=?, student_name=?, age=?, contact=?, course=? 
+            WHERE id=?
+        """, (parent_name, student_name, age, contact, course, app_id))
+        conn.commit()
+
+def delete_application_by_tg_id(tg_id):
+    """Удаляет заявку по tg_id"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM applications WHERE tg_id = ?", (str(tg_id),))
+        conn.commit()
+
+def migrate_database():
+    """Безопасная миграция базы данных - добавляет новые индексы и структуры"""
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Проверяем существование индексов
+            cursor.execute("PRAGMA index_list(applications)")
+            existing_indexes = [row[1] for row in cursor.fetchall()]
+            
+            # Добавляем недостающие индексы для applications
+            if 'idx_applications_tg_id' not in existing_indexes:
+                cursor.execute("CREATE INDEX idx_applications_tg_id ON applications(tg_id)")
+                print("✅ Добавлен индекс idx_applications_tg_id")
+            
+            if 'idx_applications_status' not in existing_indexes:
+                cursor.execute("CREATE INDEX idx_applications_status ON applications(status)")
+                print("✅ Добавлен индекс idx_applications_status")
+            
+            if 'idx_applications_lesson_date' not in existing_indexes:
+                cursor.execute("CREATE INDEX idx_applications_lesson_date ON applications(lesson_date)")
+                print("✅ Добавлен индекс idx_applications_lesson_date")
+            
+            if 'idx_applications_created_at' not in existing_indexes:
+                cursor.execute("CREATE INDEX idx_applications_created_at ON applications(created_at)")
+                print("✅ Добавлен индекс idx_applications_created_at")
+            
+            if 'idx_applications_course' not in existing_indexes:
+                cursor.execute("CREATE INDEX idx_applications_course ON applications(course)")
+                print("✅ Добавлен индекс idx_applications_course")
+            
+            # Проверяем индексы для courses
+            cursor.execute("PRAGMA index_list(courses)")
+            existing_course_indexes = [row[1] for row in cursor.fetchall()]
+            
+            if 'idx_courses_active' not in existing_course_indexes:
+                cursor.execute("CREATE INDEX idx_courses_active ON courses(active)")
+                print("✅ Добавлен индекс idx_courses_active")
+            
+            if 'idx_courses_name' not in existing_course_indexes:
+                cursor.execute("CREATE INDEX idx_courses_name ON courses(name)")
+                print("✅ Добавлен индекс idx_courses_name")
+            
+            # Проверяем индексы для contacts
+            cursor.execute("PRAGMA index_list(contacts)")
+            existing_contact_indexes = [row[1] for row in cursor.fetchall()]
+            
+            if 'idx_contacts_created_at' not in existing_contact_indexes:
+                cursor.execute("CREATE INDEX idx_contacts_created_at ON contacts(created_at)")
+                print("✅ Добавлен индекс idx_contacts_created_at")
+            
+            if 'idx_contacts_banned' not in existing_contact_indexes:
+                cursor.execute("CREATE INDEX idx_contacts_banned ON contacts(banned)")
+                print("✅ Добавлен индекс idx_contacts_banned")
+            
+            # Проверяем индексы для reviews
+            cursor.execute("PRAGMA index_list(reviews)")
+            existing_review_indexes = [row[1] for row in cursor.fetchall()]
+            
+            if 'idx_reviews_created_at' not in existing_review_indexes:
+                cursor.execute("CREATE INDEX idx_reviews_created_at ON reviews(created_at)")
+                print("✅ Добавлен индекс idx_reviews_created_at")
+            
+            if 'idx_reviews_is_anonymous' not in existing_review_indexes:
+                cursor.execute("CREATE INDEX idx_reviews_is_anonymous ON reviews(is_anonymous)")
+                print("✅ Добавлен индекс idx_reviews_is_anonymous")
+            
+            # Проверяем индексы для archive
+            cursor.execute("PRAGMA index_list(archive)")
+            existing_archive_indexes = [row[1] for row in cursor.fetchall()]
+            
+            if 'idx_archive_tg_id' not in existing_archive_indexes:
+                cursor.execute("CREATE INDEX idx_archive_tg_id ON archive(tg_id)")
+                print("✅ Добавлен индекс idx_archive_tg_id")
+            
+            if 'idx_archive_status' not in existing_archive_indexes:
+                cursor.execute("CREATE INDEX idx_archive_status ON archive(status)")
+                print("✅ Добавлен индекс idx_archive_status")
+            
+            if 'idx_archive_archived_at' not in existing_archive_indexes:
+                cursor.execute("CREATE INDEX idx_archive_archived_at ON archive(archived_at)")
+                print("✅ Добавлен индекс idx_archive_archived_at")
+            
+            if 'idx_archive_cancelled_by' not in existing_archive_indexes:
+                cursor.execute("CREATE INDEX idx_archive_cancelled_by ON archive(cancelled_by)")
+                print("✅ Добавлен индекс idx_archive_cancelled_by")
+            
+            conn.commit()
+            print("✅ Миграция базы данных завершена успешно")
+            return True
+            
+    except Exception as e:
+        print(f"❌ Ошибка при миграции базы данных: {e}")
+        return False
+
+def get_database_stats():
+    """Возвращает статистику базы данных"""
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            stats = {}
+            
+            # Статистика по таблицам
+            tables = ['applications', 'courses', 'contacts', 'reviews', 'archive']
+            for table in tables:
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                stats[f"{table}_count"] = cursor.fetchone()[0]
+            
+            # Размер базы данных
+            cursor.execute("PRAGMA page_count")
+            page_count = cursor.fetchone()[0]
+            cursor.execute("PRAGMA page_size")
+            page_size = cursor.fetchone()[0]
+            stats['database_size_mb'] = round((page_count * page_size) / (1024 * 1024), 2)
+            
+            # Информация об индексах
+            cursor.execute("PRAGMA index_list(applications)")
+            stats['applications_indexes'] = len(cursor.fetchall())
+            
+            return stats
+            
+    except Exception as e:
+        print(f"❌ Ошибка при получении статистики БД: {e}")
+        return {}

@@ -11,13 +11,62 @@ def get_main_menu(user_id=None):
     markup.add("🆘 Обратиться к админу")
     return markup
 
-def get_admin_menu():
+def get_admin_menu(): 
     """Меню для администратора"""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.row("📋 Список заявок", "📚 Редактировать курсы")
     markup.row("✅ Завершить заявку", "❌ Отменить заявку", "🚫 Отменить урок", "🕓 Перенести урок")
     markup.add("📨 Обращения пользователей", "⭐ Отзывы")
     markup.add("⬇️ Выгрузить данные")
+    return markup
+
+def create_admin_menu():
+    """Инлайн-меню для администратора с новыми опциями БД"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    # Основные разделы
+    markup.add(
+        types.InlineKeyboardButton("📝 Заявки", callback_data="admin_applications"),
+        types.InlineKeyboardButton("🗄️ Архив", callback_data="admin_archive")
+    )
+    markup.add(
+        types.InlineKeyboardButton("📚 Курсы", callback_data="admin_courses"),
+        types.InlineKeyboardButton("📞 Обращения", callback_data="admin_contacts")
+    )
+    markup.add(
+        types.InlineKeyboardButton("⭐ Отзывы", callback_data="admin_reviews"),
+        types.InlineKeyboardButton("📊 Статистика БД", callback_data="admin_db_stats")
+    )
+    
+    # Очистка данных
+    markup.add(
+        types.InlineKeyboardButton("🗑️ Очистить заявки", callback_data="admin_clear_applications"),
+        types.InlineKeyboardButton("🗑️ Очистить архив", callback_data="admin_clear_archive")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🗑️ Очистить курсы", callback_data="admin_clear_courses"),
+        types.InlineKeyboardButton("🗑️ Очистить обращения", callback_data="admin_clear_contacts")
+    )
+    markup.add(
+        types.InlineKeyboardButton("🗑️ Очистить отзывы", callback_data="admin_clear_reviews")
+    )
+    
+    # Миграция БД
+    markup.add(
+        types.InlineKeyboardButton("🔧 Миграция БД", callback_data="admin_migrate_db")
+    )
+    
+    return markup
+
+def create_confirm_menu(action_type):
+    """Меню подтверждения для опасных операций"""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
+    markup.add(
+        types.InlineKeyboardButton("✅ Да, подтверждаю", callback_data=f"confirm_{action_type}"),
+        types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_action")
+    )
+    
     return markup
 
 def get_cancel_button():

@@ -8,7 +8,7 @@
 """
 from telebot import TeleBot
 from config import API_TOKEN, CHECK_INTERVAL
-from data.db import init_db
+from data.db import init_db, migrate_database
 from services.monitor import start_monitoring
 from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_error
 
@@ -26,6 +26,13 @@ logger = setup_logger('bot')
 try:
     bot = TeleBot(API_TOKEN)
     init_db()
+    
+    # Выполняем миграцию БД
+    if migrate_database():
+        logger.info("✅ Database migration completed successfully")
+    else:
+        logger.warning("⚠️ Database migration failed, but bot will continue")
+    
     logger.info("✅ Bot and database initialized successfully")
 except Exception as e:
     log_error(logger, e, "Bot initialization")
@@ -40,11 +47,11 @@ except Exception as e:
 
 # Регистрация всех обработчиков
 try:
-    commands.register(bot, logger)               # пользовательские команды
-    registration.register(bot, logger)          # регистрация заявки
-    admin.register(bot, logger)                 # меню админа + список заявок
-    register_course_editor(bot, logger)        # редактор курсов
-    register_admin_actions(bot, logger)        # действия с заявками
+    commands.register_handlers(bot)
+    registration.register_handlers(bot)
+    admin.register_handlers(bot)  # Регистрируем новые админские хендлеры
+    register_course_editor(bot, logger)
+    register_admin_actions(bot, logger)
     send_review_request = register_reviews(bot, logger)  # обработчики отзывов
     
     # Устанавливаем функцию отправки отзывов для admin_actions

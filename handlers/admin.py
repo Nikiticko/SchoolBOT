@@ -1,4 +1,5 @@
-from telebot import types
+from telebot import types, TeleBot
+from telebot.types import Message, CallbackQuery
 from config import ADMIN_ID
 from data.db import (
     get_pending_applications,
@@ -15,17 +16,26 @@ from data.db import (
     ban_user_by_contact,
     get_all_reviews,
     get_review_stats,
-    clear_reviews
+    clear_reviews,
+    get_all_courses,
+    clear_courses,
+    get_all_contacts,
+    get_database_stats,
+    migrate_database,
+    clear_archive
 )
 from state.users import writing_ids
-from data.db import clear_archive
 import utils.menu as menu
 from openpyxl.utils import get_column_letter
 import tempfile
 import os
 import re
 import openpyxl
-from utils.security_logger import security_logger
+from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_error, log_admin_action
+from utils.security import log_security_event
+from utils.menu import create_admin_menu, create_confirm_menu
+
+logger = setup_logger('admin')
 
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)
@@ -605,3 +615,252 @@ def register(bot, logger):
                 
         except Exception as e:
             logger.error(f"Error in handle_clear_reviews_confirm: {e}")
+
+def register_admin_handlers(bot: TeleBot):
+    @bot.message_handler(commands=['admin'])
+    def admin_command(message: Message):
+        if str(message.from_user.id) != ADMIN_ID:
+            log_security_event(f"Unauthorized admin access attempt by {message.from_user.id}")
+            return
+        
+        log_admin_action(logger, message.from_user.id, "Admin panel accessed")
+        bot.reply_to(message, "🔐 Панель администратора", reply_markup=create_admin_menu())
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith('admin_'))
+    def handle_admin_callback(call: CallbackQuery):
+        if str(call.from_user.id) != ADMIN_ID:
+            log_security_event(f"Unauthorized admin callback by {call.from_user.id}")
+            return
+        
+        action = call.data.split('_')[1]
+        log_admin_action(logger, call.from_user.id, f"Admin action '{action}'")
+        
+        if action == 'applications':
+            show_applications(bot, call.message)
+        elif action == 'archive':
+            show_archive(bot, call.message)
+        elif action == 'courses':
+            show_courses(bot, call.message)
+        elif action == 'contacts':
+            show_contacts(bot, call.message)
+        elif action == 'reviews':
+            show_reviews(bot, call.message)
+        elif action == 'clear_applications':
+            confirm_clear_applications(bot, call.message)
+        elif action == 'clear_archive':
+            confirm_clear_archive(bot, call.message)
+        elif action == 'clear_courses':
+            confirm_clear_courses(bot, call.message)
+        elif action == 'clear_contacts':
+            confirm_clear_contacts(bot, call.message)
+        elif action == 'clear_reviews':
+            confirm_clear_reviews(bot, call.message)
+        elif action == 'db_stats':
+            show_database_stats(bot, call.message)
+        elif action == 'migrate_db':
+            migrate_database_action(bot, call.message)
+        
+        bot.answer_callback_query(call.id)
+
+def show_applications(bot: TeleBot, message: Message):
+    applications = get_all_applications()
+    if not applications:
+        bot.edit_message_text("📝 Нет активных заявок", chat_id=message.chat.id, message_id=message.message_id)
+        return
+    
+    text = "📝 **Активные заявки:**\n\n"
+    for app in applications[:10]:  # Показываем только первые 10
+        text += f"ID: {app[0]}\n"
+        text += f"Родитель: {app[2]}\n"
+        text += f"Ученик: {app[3]} ({app[4]} лет)\n"
+        text += f"Курс: {app[6]}\n"
+        text += f"Статус: {app[10]}\n"
+        text += f"Дата создания: {app[11]}\n"
+        text += "─" * 30 + "\n"
+    
+    if len(applications) > 10:
+        text += f"\n... и еще {len(applications) - 10} заявок"
+    
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, parse_mode='Markdown')
+
+def show_archive(bot: TeleBot, message: Message):
+    archive = get_all_archive()
+    if not archive:
+        bot.edit_message_text("🗄️ Архив пуст", chat_id=message.chat.id, message_id=message.message_id)
+        return
+    
+    text = "🗄️ **Архив:**\n\n"
+    for record in archive[:10]:  # Показываем только первые 10
+        text += f"ID: {record[0]}\n"
+        text += f"Родитель: {record[2]}\n"
+        text += f"Ученик: {record[3]} ({record[4]} лет)\n"
+        text += f"Курс: {record[6]}\n"
+        text += f"Статус: {record[10]}\n"
+        text += f"Дата архивирования: {record[12]}\n"
+        text += "─" * 30 + "\n"
+    
+    if len(archive) > 10:
+        text += f"\n... и еще {len(archive) - 10} записей"
+    
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, parse_mode='Markdown')
+
+def show_courses(bot: TeleBot, message: Message):
+    courses = get_all_courses()
+    if not courses:
+        bot.edit_message_text("📚 Нет курсов", chat_id=message.chat.id, message_id=message.message_id)
+        return
+    
+    text = "📚 **Курсы:**\n\n"
+    for course in courses:
+        status = "✅ Активен" if course[3] else "❌ Неактивен"
+        text += f"ID: {course[0]}\n"
+        text += f"Название: {course[1]}\n"
+        text += f"Описание: {course[2]}\n"
+        text += f"Статус: {status}\n"
+        text += "─" * 30 + "\n"
+    
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, parse_mode='Markdown')
+
+def show_contacts(bot: TeleBot, message: Message):
+    contacts = get_all_contacts()
+    if not contacts:
+        bot.edit_message_text("📞 Нет обращений", chat_id=message.chat.id, message_id=message.message_id)
+        return
+    
+    text = "📞 **Обращения:**\n\n"
+    for contact in contacts[:10]:  # Показываем только первые 10
+        text += f"ID: {contact[0]}\n"
+        text += f"Пользователь: {contact[1]}\n"
+        text += f"Контакты: {contact[2]}\n"
+        text += f"Сообщение: {contact[3][:50]}...\n"
+        text += f"Статус: {contact[5]}\n"
+        text += f"Дата: {contact[6]}\n"
+        text += "─" * 30 + "\n"
+    
+    if len(contacts) > 10:
+        text += f"\n... и еще {len(contacts) - 10} обращений"
+    
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, parse_mode='Markdown')
+
+def show_reviews(bot: TeleBot, message: Message):
+    reviews = get_all_reviews()
+    if not reviews:
+        bot.edit_message_text("⭐ Нет отзывов", chat_id=message.chat.id, message_id=message.message_id)
+        return
+    
+    text = "⭐ **Отзывы:**\n\n"
+    for review in reviews[:10]:  # Показываем только первые 10
+        text += f"ID: {review[0]}\n"
+        text += f"Рейтинг: {review[1]}/10\n"
+        text += f"Отзыв: {review[2][:50]}...\n"
+        text += f"Анонимный: {'Да' if review[3] else 'Нет'}\n"
+        text += f"Родитель: {review[4]}\n"
+        text += f"Ученик: {review[5]}\n"
+        text += f"Курс: {review[6]}\n"
+        text += f"Дата: {review[7]}\n"
+        text += "─" * 30 + "\n"
+    
+    if len(reviews) > 10:
+        text += f"\n... и еще {len(reviews) - 10} отзывов"
+    
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, parse_mode='Markdown')
+
+def show_database_stats(bot: TeleBot, message: Message):
+    """Показывает статистику базы данных"""
+    stats = get_database_stats()
+    if not stats:
+        bot.edit_message_text("❌ Не удалось получить статистику БД", chat_id=message.chat.id, message_id=message.message_id)
+        return
+    
+    text = "📊 **Статистика базы данных:**\n\n"
+    text += f"📝 Заявок: {stats.get('applications_count', 0)}\n"
+    text += f"📚 Курсов: {stats.get('courses_count', 0)}\n"
+    text += f"📞 Обращений: {stats.get('contacts_count', 0)}\n"
+    text += f"⭐ Отзывов: {stats.get('reviews_count', 0)}\n"
+    text += f"🗄️ В архиве: {stats.get('archive_count', 0)}\n"
+    text += f"💾 Размер БД: {stats.get('database_size_mb', 0)} МБ\n"
+    text += f"🔍 Индексов в applications: {stats.get('applications_indexes', 0)}\n"
+    
+    bot.edit_message_text(text, chat_id=message.chat.id, message_id=message.message_id, parse_mode='Markdown')
+
+def migrate_database_action(bot: TeleBot, message: Message):
+    """Выполняет миграцию базы данных"""
+    try:
+        if migrate_database():
+            bot.edit_message_text("✅ Миграция базы данных выполнена успешно!", chat_id=message.chat.id, message_id=message.message_id)
+        else:
+            bot.edit_message_text("❌ Ошибка при выполнении миграции БД", chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        logger.error(f"Error during database migration: {e}")
+        bot.edit_message_text(f"❌ Ошибка при миграции: {str(e)}", chat_id=message.chat.id, message_id=message.message_id)
+
+def confirm_clear_applications(bot: TeleBot, message: Message):
+    """Показывает меню подтверждения очистки заявок"""
+    bot.edit_message_text(
+        "⚠️ **ВНИМАНИЕ!**\n\n"
+        "Вы собираетесь удалить ВСЕ активные заявки!\n"
+        "Это действие нельзя отменить.\n\n"
+        "Продолжить?",
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        parse_mode='Markdown',
+        reply_markup=create_confirm_menu('clear_applications')
+    )
+
+def confirm_clear_archive(bot: TeleBot, message: Message):
+    """Показывает меню подтверждения очистки архива"""
+    bot.edit_message_text(
+        "⚠️ **ВНИМАНИЕ!**\n\n"
+        "Вы собираетесь удалить ВСЕ записи из архива!\n"
+        "Это действие нельзя отменить.\n\n"
+        "Продолжить?",
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        parse_mode='Markdown',
+        reply_markup=create_confirm_menu('clear_archive')
+    )
+
+def confirm_clear_courses(bot: TeleBot, message: Message):
+    """Показывает меню подтверждения очистки курсов"""
+    bot.edit_message_text(
+        "⚠️ **ВНИМАНИЕ!**\n\n"
+        "Вы собираетесь удалить ВСЕ курсы!\n"
+        "Это действие нельзя отменить.\n\n"
+        "Продолжить?",
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        parse_mode='Markdown',
+        reply_markup=create_confirm_menu('clear_courses')
+    )
+
+def confirm_clear_contacts(bot: TeleBot, message: Message):
+    """Показывает меню подтверждения очистки обращений"""
+    bot.edit_message_text(
+        "⚠️ **ВНИМАНИЕ!**\n\n"
+        "Вы собираетесь удалить ВСЕ обращения пользователей!\n"
+        "Это действие нельзя отменить.\n\n"
+        "Продолжить?",
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        parse_mode='Markdown',
+        reply_markup=create_confirm_menu('clear_contacts')
+    )
+
+def confirm_clear_reviews(bot: TeleBot, message: Message):
+    """Показывает меню подтверждения очистки отзывов"""
+    bot.edit_message_text(
+        "⚠️ **ВНИМАНИЕ!**\n\n"
+        "Вы собираетесь удалить ВСЕ отзывы!\n"
+        "Это действие нельзя отменить.\n\n"
+        "Продолжить?",
+        chat_id=message.chat.id,
+        message_id=message.message_id,
+        parse_mode='Markdown',
+        reply_markup=create_confirm_menu('clear_reviews')
+    )
+
+def register_handlers(bot):
+    """Регистрация всех админских обработчиков"""
+    logger = setup_logger('admin')
+    register(bot, logger)  # Старые обработчики
+    register_admin_handlers(bot)  # Новые инлайн-обработчики
