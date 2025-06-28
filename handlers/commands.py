@@ -45,11 +45,11 @@ def register(bot, logger):
             # Проверка безопасности
             security_ok, error_msg = check_user_security(chat_id, "my_lesson")
             if not security_ok:
-                return f"🚫 {error_msg}", show_menu
+                return f"🚫 {error_msg}", show_menu, None
             
             # Проверка отмен
             if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
-                return "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.", show_menu
+                return "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.", True, None
 
             # Проверка завершённых уроков
             if get_finished_count_by_tg_id(str(chat_id)) >= 1:
@@ -61,18 +61,21 @@ def register(bot, logger):
                         student_name = row[3]
                         parent_name = row[2]
                         lesson_date = format_date_for_display(row[7])
-                        comment = row[12]
-                        msg = f"✅ Ваш пробный урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} уже прошёл.\n\nОбратная связь: {comment}"
-                        return msg, show_menu
-                return "✅ Ваш пробный урок уже прошёл.", show_menu
+                        comment = row[13] if len(row) > 13 else None
+                        feedback = comment if comment else "Отзыв отсутствует"
+                        msg = f"✅ Ваш пробный урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} уже прошёл.\n\nОбратная связь: {feedback}"
+                        return msg, True, None
+                return "✅ Ваш пробный урок уже прошёл.", True, None
 
             app = get_application_by_tg_id(str(chat_id))
             if not app:
-                return "Вы ещё не регистрировались. Нажмите «📋 Записаться».", show_menu
+                return "Вы ещё не регистрировались. Нажмите «📋 Записаться».", True, None
+            
             course = app[6]
             date = app[7]
             link = app[8]
             status = app[9]
+            
             if status != "Назначено":
                 # Показываем заявку и кнопки
                 parent_name = app[2]
@@ -93,17 +96,21 @@ def register(bot, logger):
                     types.InlineKeyboardButton("✏️ Редактировать заявку", callback_data="edit_application"),
                     types.InlineKeyboardButton("❌ Отменить заявку", callback_data="cancel_application")
                 )
-                bot.send_message(chat_id, msg, reply_markup=markup)
-                return
+                return msg, False, markup
+            
             if date and link:
                 formatted_date = format_date_for_display(date)
                 msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data="cancel_lesson_user"))
+                return msg, False, markup
             else:
                 msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
-            return msg, show_menu
+                return msg, True, None
+                
         except Exception as e:
             log_error(logger, e, f"My lesson logic for user {chat_id}")
-            return "❌ Произошла ошибка при получении информации о занятии.", show_menu
+            return "❌ Произошла ошибка при получении информации о занятии.", True, None
 
     @bot.message_handler(commands=["my_lesson"])
     def handle_my_lesson_command(message):
@@ -114,8 +121,11 @@ def register(bot, logger):
                 bot.send_message(message.chat.id, f"🚫 {error_msg}")
                 return
             
-            msg, _ = _handle_my_lesson_logic(message.chat.id)
-            bot.send_message(message.chat.id, msg)
+            msg, show_menu, markup = _handle_my_lesson_logic(message.chat.id)
+            if show_menu:
+                bot.send_message(message.chat.id, msg, reply_markup=menu.get_main_menu())
+            else:
+                bot.send_message(message.chat.id, msg, reply_markup=markup)
             log_user_action(logger, message.from_user.id, "my_lesson_command")
         except Exception as e:
             log_error(logger, e, f"My lesson command for user {message.from_user.id}")
@@ -150,12 +160,39 @@ def register(bot, logger):
             return
         
         chat_id = message.chat.id
+        
+        # Проверка отмен
+        if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
+            bot.send_message(chat_id, "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.", reply_markup=menu.get_main_menu())
+            return
+
+        # Проверка завершённых уроков
+        if get_finished_count_by_tg_id(str(chat_id)) >= 1:
+            # Найти последнюю завершённую заявку в архиве
+            archive = get_all_archive()
+            for row in archive:
+                if row[1] == str(chat_id) and row[9] == 'Завершено':
+                    course = row[6]
+                    student_name = row[3]
+                    parent_name = row[2]
+                    lesson_date = format_date_for_display(row[7])
+                    comment = row[13] if len(row) > 13 else None
+                    feedback = comment if comment else "Отзыв отсутствует"
+                    msg = f"✅ Ваш пробный урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} уже прошёл.\n\nОбратная связь: {feedback}"
+                    bot.send_message(chat_id, msg, reply_markup=menu.get_main_menu())
+                    return
+            # Если не нашли детали в архиве, показываем общее сообщение
+            bot.send_message(chat_id, "✅ Ваш пробный урок уже прошёл.", reply_markup=menu.get_main_menu())
+            return
+        
         app = get_application_by_tg_id(str(chat_id))
         if not app:
             bot.send_message(chat_id, "Вы ещё не регистрировались. Нажмите «📋 Записаться».", reply_markup=menu.get_main_menu())
             return
-        course, date, link = app[6], app[7], app[8]
-        if not date and not link:
+        
+        course, date, link, status = app[6], app[7], app[8], app[9]
+        
+        if status != "Назначено":
             # Показываем заявку и кнопки
             parent_name = app[2]
             student_name = app[3]
@@ -177,6 +214,7 @@ def register(bot, logger):
             )
             bot.send_message(chat_id, msg, reply_markup=markup)
             return
+        
         # Если урок назначен, показываем детали и кнопку отмены урока
         if date and link:
             formatted_date = format_date_for_display(date)
@@ -184,6 +222,10 @@ def register(bot, logger):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data="cancel_lesson_user"))
             bot.send_message(chat_id, msg, reply_markup=markup)
+            return
+        else:
+            msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
+            bot.send_message(chat_id, msg, reply_markup=menu.get_main_menu())
             return
 
     @bot.callback_query_handler(func=lambda c: c.data == "edit_application")
