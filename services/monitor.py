@@ -7,11 +7,17 @@ from data.db import get_application_by_tg_id, update_application_lesson, get_upc
 from config import CHECK_INTERVAL
 from utils.logger import log_error, log_user_action
 from utils.exceptions import MonitoringException, handle_exception
+from state.users import cleanup_expired_registrations
 
 def monitor_loop(bot, logger):
     """Основной цикл мониторинга заявок и напоминаний"""
     while True:
         try:
+            # ИСПРАВЛЕНО: Очищаем просроченные регистрации
+            expired_count = cleanup_expired_registrations(timeout_minutes=30)
+            if expired_count > 0:
+                logger.info(f"🧹 Очищено {expired_count} просроченных регистраций")
+            
             # Получаем все ожидающие уведомления из StateManager
             pending = state_manager.get_all_pending()
             logger.debug(f"🔍 Checking {len(pending)} pending notifications...")

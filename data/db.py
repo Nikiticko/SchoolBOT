@@ -173,6 +173,22 @@ def init_db():
 def add_application(tg_id, parent_name, student_name, age, contact, course):
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # ИСПРАВЛЕНО: Проверяем существующие заявки
+        cursor.execute("""
+            SELECT id, status FROM applications 
+            WHERE tg_id = ? 
+            ORDER BY created_at DESC LIMIT 1
+        """, (tg_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            app_id, status = existing
+            if status == "Ожидает":
+                raise ValueError(f"У пользователя {tg_id} уже есть активная заявка #{app_id}")
+            elif status == "Назначено":
+                raise ValueError(f"У пользователя {tg_id} уже назначен урок (заявка #{app_id})")
+        
         cursor.execute("""
             INSERT INTO applications (tg_id, parent_name, student_name, age, contact, course, status)
             VALUES (?, ?, ?, ?, ?, ?, ?)

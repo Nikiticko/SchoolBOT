@@ -1,6 +1,11 @@
 from telebot import types
+import time
 
-from state.users import user_data
+from state.users import (
+    user_data, start_registration, is_registration_in_progress, 
+    get_registration_stage, update_registration_stage, 
+    get_registration_start_time, cleanup_expired_registrations, clear_user_data
+)
 from utils.menu import get_main_menu, get_admin_menu, get_cancel_button, handle_cancel_action
 from handlers.admin import notify_admin_new_application, is_admin
 from data.db import (
@@ -33,6 +38,19 @@ def register(bot, logger):
                 bot.send_message(chat_id, f"🚫 {error_msg}")
                 return
 
+            # ИСПРАВЛЕНО: Проверка на существующие активные заявки
+            existing_app = get_application_by_tg_id(str(chat_id))
+            if existing_app:
+                status = existing_app[9]  # status
+                if status == "Ожидает":
+                    bot.send_message(chat_id, "⚠️ У вас уже есть активная заявка на рассмотрении. Дождитесь ответа администратора или отмените текущую заявку.")
+                    return
+                elif status == "Назначено":
+                    course, date, link = existing_app[6], existing_app[7], existing_app[8]
+                    formatted_date = format_date_for_display(date)
+                    bot.send_message(chat_id, f"✅ У вас уже назначен урок:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
+                    return
+
             # 1. Проверка отмен
             if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
                 bot.send_message(chat_id, "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.")
@@ -54,26 +72,19 @@ def register(bot, logger):
                 return
 
             # 5. Текущая регистрация
-            if user_data.get(chat_id, {}).get("in_progress"):
-                bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
-                return
-
-            # 6. Уже есть активная заявка
-            app = get_application_by_tg_id(str(chat_id))
-            if app:
-                course, date, link, status = app[6], app[7], app[8], app[9]
-                if status != "Назначено":
-                    handle_existing_registration(bot, chat_id)
+            if is_registration_in_progress(chat_id):
+                # ИСПРАВЛЕНО: Проверяем таймаут регистрации
+                start_time = get_registration_start_time(chat_id)
+                if time.time() - start_time > 30 * 60:  # 30 минут
+                    # Очищаем просроченную регистрацию
+                    clear_user_data(chat_id)
+                    bot.send_message(chat_id, "⏰ Предыдущая регистрация истекла. Начинаем заново.")
                 else:
-                    formatted_date = format_date_for_display(date)
-                    bot.send_message(chat_id, f"Вы уже записаны на занятие:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
-                return
+                    bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
+                    return
 
             # Начало регистрации
-            user_data[chat_id] = {
-                "in_progress": True,
-                "stage": "parent_name"
-            }
+            start_registration(chat_id)
             bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
             bot.register_next_step_handler(message, process_parent_name)
             logger.info(f"User {chat_id} started registration")
@@ -94,7 +105,16 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
-        if user_data.get(chat_id, {}).get("stage") != "parent_name":
+        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
+        if get_registration_stage(chat_id) != "parent_name":
+            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
+            return
+        
+        # Проверяем таймаут
+        start_time = get_registration_start_time(chat_id)
+        if time.time() - start_time > 30 * 60:  # 30 минут
+            clear_user_data(chat_id)
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
             return
         
         # Валидация имени
@@ -104,8 +124,10 @@ def register(bot, logger):
             bot.register_next_step_handler(message, process_parent_name)
             return
             
-        user_data[chat_id]["parent_name"] = message.text.strip()
-        user_data[chat_id]["stage"] = "student_name"
+        # ИСПРАВЛЕНО: Используем StateManager
+        from state.users import update_user_data
+        update_user_data(chat_id, parent_name=message.text.strip())
+        update_registration_stage(chat_id, "student_name")
         bot.send_message(chat_id, "Введите имя ученика:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(message, process_student_name)
 
@@ -123,7 +145,16 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
-        if user_data.get(chat_id, {}).get("stage") != "student_name":
+        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
+        if get_registration_stage(chat_id) != "student_name":
+            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
+            return
+        
+        # Проверяем таймаут
+        start_time = get_registration_start_time(chat_id)
+        if time.time() - start_time > 30 * 60:  # 30 минут
+            clear_user_data(chat_id)
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
             return
         
         # Валидация имени
@@ -133,8 +164,10 @@ def register(bot, logger):
             bot.register_next_step_handler(message, process_student_name)
             return
             
-        user_data[chat_id]["student_name"] = message.text.strip()
-        user_data[chat_id]["stage"] = "age"
+        # ИСПРАВЛЕНО: Используем StateManager
+        from state.users import update_user_data
+        update_user_data(chat_id, student_name=message.text.strip())
+        update_registration_stage(chat_id, "age")
         bot.send_message(chat_id, "Введите возраст ученика:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(message, process_age)
 
@@ -152,7 +185,16 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
-        if user_data.get(chat_id, {}).get("stage") != "age":
+        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
+        if get_registration_stage(chat_id) != "age":
+            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
+            return
+        
+        # Проверяем таймаут
+        start_time = get_registration_start_time(chat_id)
+        if time.time() - start_time > 30 * 60:  # 30 минут
+            clear_user_data(chat_id)
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
             return
         
         # Валидация возраста
@@ -162,8 +204,10 @@ def register(bot, logger):
             bot.register_next_step_handler(message, process_age)
             return
             
-        user_data[chat_id]["age"] = message.text.strip()
-        user_data[chat_id]["stage"] = "course"
+        # ИСПРАВЛЕНО: Используем StateManager
+        from state.users import update_user_data
+        update_user_data(chat_id, age=message.text.strip())
+        update_registration_stage(chat_id, "course")
 
         courses = get_active_courses()
         if not courses:
@@ -191,7 +235,16 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
 
-        if user_data.get(chat_id, {}).get("stage") != "course":
+        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
+        if get_registration_stage(chat_id) != "course":
+            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
+            return
+        
+        # Проверяем таймаут
+        start_time = get_registration_start_time(chat_id)
+        if time.time() - start_time > 30 * 60:  # 30 минут
+            clear_user_data(chat_id)
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
             return
 
         selected = message.text.strip()
@@ -202,14 +255,18 @@ def register(bot, logger):
             bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.")
             return bot.register_next_step_handler(message, process_course)
 
-        user_data[chat_id]["course"] = selected
+        # ИСПРАВЛЕНО: Используем StateManager
+        from state.users import update_user_data
+        update_user_data(chat_id, course=selected)
         user = message.from_user
-        user_data[chat_id]["contact"] = f"@{user.username}" if user.username else ""
-        user_data[chat_id]["stage"] = "confirmation"
+        update_user_data(chat_id, contact=f"@{user.username}" if user.username else "")
+        update_registration_stage(chat_id, "confirmation")
         send_confirmation(bot, chat_id)
 
     def send_confirmation(bot, chat_id):
-        data = user_data.get(chat_id)
+        # ИСПРАВЛЕНО: Используем StateManager
+        from state.users import get_user_data
+        data = get_user_data(chat_id)
         if not data:
             return
 
@@ -243,23 +300,47 @@ def register(bot, logger):
             handle_cancel_action(bot, call.message, "регистрация", logger)
             return
 
-        if user_data.get(chat_id, {}).get("stage") != "confirmation":
+        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
+        if get_registration_stage(chat_id) != "confirmation":
             bot.send_message(chat_id, "⚠️ Подтверждение недоступно. Начните заново.")
             return
+        
+        # Проверяем таймаут
+        start_time = get_registration_start_time(chat_id)
+        if time.time() - start_time > 30 * 60:  # 30 минут
+            clear_user_data(chat_id)
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+            return
 
-        data = user_data[chat_id]
-        add_application(
-            tg_id=str(chat_id),
-            parent_name=data["parent_name"],
-            student_name=data["student_name"],
-            age=data["age"],
-            contact=data["contact"],
-            course=data["course"]
-        )
-        notify_admin_new_application(bot, data)
-        bot.send_message(chat_id, "✅ Ваша заявка отправлена!", reply_markup=get_main_menu())
-        user_data.pop(chat_id, None)
-        logger.info(f"User {chat_id} submitted application")
+        # ИСПРАВЛЕНО: Используем StateManager и добавляем обработку ошибок
+        from state.users import get_user_data
+        data = get_user_data(chat_id)
+        
+        try:
+            add_application(
+                tg_id=str(chat_id),
+                parent_name=data["parent_name"],
+                student_name=data["student_name"],
+                age=data["age"],
+                contact=data["contact"],
+                course=data["course"]
+            )
+            notify_admin_new_application(bot, data)
+            bot.send_message(chat_id, "✅ Ваша заявка отправлена!", reply_markup=get_main_menu())
+            clear_user_data(chat_id)
+            logger.info(f"User {chat_id} submitted application")
+            
+        except ValueError as e:
+            # Обработка ошибки дублирования заявки
+            bot.send_message(chat_id, f"⚠️ {str(e)}", reply_markup=get_main_menu())
+            clear_user_data(chat_id)
+            logger.warning(f"User {chat_id} tried to create duplicate application: {e}")
+            
+        except Exception as e:
+            # Обработка других ошибок
+            bot.send_message(chat_id, "❌ Произошла ошибка при сохранении заявки. Попробуйте позже.", reply_markup=get_main_menu())
+            clear_user_data(chat_id)
+            log_error(logger, e, f"Error saving application for user {chat_id}")
 
 
 def register_handlers(bot):

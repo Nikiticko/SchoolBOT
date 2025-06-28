@@ -4,6 +4,7 @@
 Использует новый StateManager для безопасного хранения состояний
 """
 
+import time
 from state.state_manager import state_manager
 
 # Функции для обратной совместимости
@@ -22,6 +23,54 @@ def update_user_data(user_id: int, **kwargs):
 def clear_user_data(user_id: int):
     """Очищает данные пользователя"""
     state_manager.clear_user_data(user_id)
+
+# ИСПРАВЛЕНО: Новые функции для работы с состоянием регистрации
+def start_registration(user_id: int):
+    """Начинает процесс регистрации"""
+    state_manager.set_user_data(user_id, {
+        "in_progress": True,
+        "stage": "parent_name",
+        "started_at": time.time()
+    })
+
+def is_registration_in_progress(user_id: int) -> bool:
+    """Проверяет, идет ли процесс регистрации"""
+    data = state_manager.get_user_data(user_id)
+    return data.get("in_progress", False)
+
+def get_registration_stage(user_id: int) -> str:
+    """Получает текущий этап регистрации"""
+    data = state_manager.get_user_data(user_id)
+    return data.get("stage", "")
+
+def update_registration_stage(user_id: int, stage: str):
+    """Обновляет этап регистрации"""
+    state_manager.update_user_data(user_id, stage=stage)
+
+def get_registration_start_time(user_id: int) -> float:
+    """Получает время начала регистрации"""
+    data = state_manager.get_user_data(user_id)
+    return data.get("started_at", 0)
+
+def cleanup_expired_registrations(timeout_minutes: int = 30):
+    """Очищает просроченные регистрации"""
+    current_time = time.time()
+    timeout_seconds = timeout_minutes * 60
+    
+    # Получаем всех пользователей с активными регистрациями
+    all_user_data = state_manager._state["user_data"]
+    expired_users = []
+    
+    for user_id_str, data in all_user_data.items():
+        if data.get("in_progress") and data.get("started_at"):
+            if current_time - data["started_at"] > timeout_seconds:
+                expired_users.append(int(user_id_str))
+    
+    # Очищаем просроченные регистрации
+    for user_id in expired_users:
+        state_manager.clear_user_data(user_id)
+    
+    return len(expired_users)
 
 # Для обратной совместимости с существующим кодом
 user_data = {}  # Пустой словарь для совместимости

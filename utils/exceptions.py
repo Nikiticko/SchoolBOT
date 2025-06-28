@@ -121,6 +121,45 @@ class MonitoringException(BotException):
             "monitoring_type": monitoring_type
         })
 
+class RegistrationException(BotException):
+    """Исключение для ошибок регистрации"""
+    
+    def __init__(self, message: str, stage: str = None, user_id: int = None):
+        super().__init__(message, "REGISTRATION_ERROR", {
+            "stage": stage,
+            "user_id": user_id
+        })
+
+class RegistrationTimeoutException(RegistrationException):
+    """Исключение для истечения времени регистрации"""
+    
+    def __init__(self, user_id: int, timeout_minutes: int = 30):
+        super().__init__(
+            f"Время регистрации истекло ({timeout_minutes} минут)",
+            "REGISTRATION_TIMEOUT",
+            {"user_id": user_id, "timeout_minutes": timeout_minutes}
+        )
+
+class DuplicateApplicationException(RegistrationException):
+    """Исключение для дублирования заявок"""
+    
+    def __init__(self, user_id: int, existing_app_id: int = None):
+        super().__init__(
+            "У вас уже есть активная заявка",
+            "DUPLICATE_APPLICATION",
+            {"user_id": user_id, "existing_app_id": existing_app_id}
+        )
+
+class InvalidRegistrationStageException(RegistrationException):
+    """Исключение для неверного этапа регистрации"""
+    
+    def __init__(self, user_id: int, expected_stage: str, actual_stage: str):
+        super().__init__(
+            f"Неверный этап регистрации: ожидался {expected_stage}, получен {actual_stage}",
+            "INVALID_REGISTRATION_STAGE",
+            {"user_id": user_id, "expected_stage": expected_stage, "actual_stage": actual_stage}
+        )
+
 # Функции для создания исключений
 def create_database_error(message: str, operation: str = None, table: str = None) -> DatabaseException:
     """Создает исключение для ошибки БД"""
@@ -173,6 +212,15 @@ def handle_exception(exception: Exception, logger, context: str = None) -> str:
             return "❌ Ошибка конфигурации. Обратитесь к администратору."
         elif isinstance(exception, TelegramAPIException):
             return "❌ Ошибка Telegram. Попробуйте позже."
+        elif isinstance(exception, RegistrationTimeoutException):
+            timeout = exception.details.get("timeout_minutes", 30)
+            return f"⏰ Время регистрации истекло ({timeout} минут). Начните заново."
+        elif isinstance(exception, DuplicateApplicationException):
+            return "⚠️ У вас уже есть активная заявка. Дождитесь ответа администратора."
+        elif isinstance(exception, InvalidRegistrationStageException):
+            return "⚠️ Неверный этап регистрации. Начните заново."
+        elif isinstance(exception, RegistrationException):
+            return f"❌ Ошибка регистрации: {exception.message}"
         else:
             return "❌ Произошла ошибка. Попробуйте позже."
     
