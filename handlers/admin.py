@@ -282,11 +282,13 @@ def register(bot, logger):
         markup = types.InlineKeyboardMarkup()
         markup.add(
             types.InlineKeyboardButton("Заявки", callback_data="export_applications"),
-            types.InlineKeyboardButton("Архив", callback_data="export_archive")
+            types.InlineKeyboardButton("Архив", callback_data="export_archive"),
+            types.InlineKeyboardButton("Обращения", callback_data="export_contacts"),
+            types.InlineKeyboardButton("Отзывы", callback_data="export_reviews")
         )
         bot.send_message(message.chat.id, "Что выгрузить?", reply_markup=markup)
 
-    @bot.callback_query_handler(func=lambda c: c.data in ["export_applications", "export_archive"])
+    @bot.callback_query_handler(func=lambda c: c.data in ["export_applications", "export_archive", "export_contacts", "export_reviews"])
     def handle_export_choice(call):
         if call.data == "export_applications":
             data = get_all_applications()
@@ -307,7 +309,7 @@ def register(bot, logger):
                     app_id, tg_id, parent_name, student_name, age, contact, course,
                     lesson_date, lesson_link, status_str, created_at
                 ])
-        else:
+        elif call.data == "export_archive":
             data = get_all_archive()
             filename = "archive_export.xlsx"
             headers = [
@@ -315,6 +317,23 @@ def register(bot, logger):
                 "Дата урока", "Ссылка", "Статус", "Создано", "Кем отменено", "Комментарий"
             ]
             rows = data
+        elif call.data == "export_contacts":
+            data = get_all_contacts()
+            filename = "contacts_export.xlsx"
+            headers = [
+                "ID", "TG ID", "Контакт", "Сообщение", "Ответ админа", "Статус", 
+                "Создано", "Ответ дан", "Забанен", "Причина бана"
+            ]
+            rows = data
+        elif call.data == "export_reviews":
+            data = get_all_reviews()
+            filename = "reviews_export.xlsx"
+            headers = [
+                "ID", "Рейтинг", "Отзыв", "Анонимный", "Родитель", "Ученик", 
+                "Курс", "Создано", "TG ID"
+            ]
+            rows = data
+        
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(headers)
