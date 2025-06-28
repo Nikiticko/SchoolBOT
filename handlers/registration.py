@@ -71,22 +71,40 @@ def register(bot, logger):
                 bot.send_message(chat_id, "⚠️ Сейчас запись недоступна. Курсы временно неактивны.")
                 return
 
-            # 5. Текущая регистрация
+            # 5. ИСПРАВЛЕНО: Проверка незавершенной регистрации
             if is_registration_in_progress(chat_id):
-                # ИСПРАВЛЕНО: Проверяем таймаут регистрации
+                # Проверяем таймаут регистрации
                 start_time = get_registration_start_time(chat_id)
                 if time.time() - start_time > 30 * 60:  # 30 минут
                     # Очищаем просроченную регистрацию
                     clear_user_data(chat_id)
                     bot.send_message(chat_id, "⏰ Предыдущая регистрация истекла. Начинаем заново.")
                 else:
-                    bot.send_message(chat_id, "⏳ Пожалуйста, завершите текущую регистрацию.")
+                    # Показываем возможность продолжить регистрацию
+                    current_stage = get_registration_stage(chat_id)
+                    stage_messages = {
+                        "parent_name": "Введите ваше имя (имя родителя):",
+                        "student_name": "Введите имя ученика:",
+                        "age": "Введите возраст ученика:",
+                        "contact": "Введите контактный номер:",
+                        "course": "Выберите курс:"
+                    }
+                    
+                    markup = types.InlineKeyboardMarkup(row_width=2)
+                    markup.add(
+                        types.InlineKeyboardButton("🔄 Продолжить", callback_data="continue_registration"),
+                        types.InlineKeyboardButton("🔄 Начать заново", callback_data="restart_registration")
+                    )
+                    
+                    current_message = stage_messages.get(current_stage, "Продолжите регистрацию:")
+                    msg = bot.send_message(chat_id, f"⏳ У вас есть незавершенная регистрация.\n\n{current_message}", reply_markup=markup)
+                    bot.register_next_step_handler(msg, process_parent_name)
                     return
 
-            # Начало регистрации
+            # Начало новой регистрации
             start_registration(chat_id)
-            bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
-            bot.register_next_step_handler(message, process_parent_name)
+            msg = bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
+            bot.register_next_step_handler(msg, process_parent_name)
             logger.info(f"User {chat_id} started registration")
         except Exception as e:
             log_error(logger, e, f"Error in handle_signup for user {message.chat.id}")
@@ -120,16 +138,16 @@ def register(bot, logger):
         # Валидация имени
         is_valid, error_msg = validate_user_input(message.text, "name")
         if not is_valid:
-            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
-            bot.register_next_step_handler(message, process_parent_name)
+            msg = bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:", reply_markup=get_cancel_button())
+            bot.register_next_step_handler(msg, process_parent_name)
             return
             
         # ИСПРАВЛЕНО: Используем StateManager
         from state.users import update_user_data
         update_user_data(chat_id, parent_name=message.text.strip())
         update_registration_stage(chat_id, "student_name")
-        bot.send_message(chat_id, "Введите имя ученика:", reply_markup=get_cancel_button())
-        bot.register_next_step_handler(message, process_student_name)
+        msg = bot.send_message(chat_id, "Введите имя ученика:", reply_markup=get_cancel_button())
+        bot.register_next_step_handler(msg, process_student_name)
 
     def process_student_name(message):
         chat_id = message.chat.id
@@ -160,16 +178,16 @@ def register(bot, logger):
         # Валидация имени
         is_valid, error_msg = validate_user_input(message.text, "name")
         if not is_valid:
-            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
-            bot.register_next_step_handler(message, process_student_name)
+            msg = bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:", reply_markup=get_cancel_button())
+            bot.register_next_step_handler(msg, process_student_name)
             return
             
         # ИСПРАВЛЕНО: Используем StateManager
         from state.users import update_user_data
         update_user_data(chat_id, student_name=message.text.strip())
         update_registration_stage(chat_id, "age")
-        bot.send_message(chat_id, "Введите возраст ученика:", reply_markup=get_cancel_button())
-        bot.register_next_step_handler(message, process_age)
+        msg = bot.send_message(chat_id, "Введите возраст ученика:", reply_markup=get_cancel_button())
+        bot.register_next_step_handler(msg, process_age)
 
     def process_age(message):
         chat_id = message.chat.id
@@ -200,8 +218,8 @@ def register(bot, logger):
         # Валидация возраста
         is_valid, error_msg = validate_user_input(message.text, "age")
         if not is_valid:
-            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
-            bot.register_next_step_handler(message, process_age)
+            msg = bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:", reply_markup=get_cancel_button())
+            bot.register_next_step_handler(msg, process_age)
             return
             
         # ИСПРАВЛЕНО: Используем StateManager
@@ -218,8 +236,8 @@ def register(bot, logger):
         for course in courses:
             markup.add(course[1])
         markup.add("🔙 Отмена")
-        bot.send_message(chat_id, "Выберите курс:", reply_markup=markup)
-        bot.register_next_step_handler(message, process_course)
+        msg = bot.send_message(chat_id, "Выберите курс:", reply_markup=markup)
+        bot.register_next_step_handler(msg, process_course)
 
     def process_course(message):
         chat_id = message.chat.id
@@ -252,8 +270,9 @@ def register(bot, logger):
         course_names = [c[1] for c in courses]
 
         if selected not in course_names:
-            bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.")
-            return bot.register_next_step_handler(message, process_course)
+            msg = bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.", reply_markup=get_main_menu())
+            bot.register_next_step_handler(msg, process_course)
+            return
 
         # ИСПРАВЛЕНО: Используем StateManager
         from state.users import update_user_data
@@ -341,6 +360,95 @@ def register(bot, logger):
             bot.send_message(chat_id, "❌ Произошла ошибка при сохранении заявки. Попробуйте позже.", reply_markup=get_main_menu())
             clear_user_data(chat_id)
             log_error(logger, e, f"Error saving application for user {chat_id}")
+
+    @bot.callback_query_handler(func=lambda call: call.data in ["continue_registration", "restart_registration"])
+    def handle_registration_actions(call):
+        """Обрабатывает действия с незавершенной регистрацией"""
+        chat_id = call.message.chat.id
+        
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "registration_action")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
+            return
+        
+        if call.data == "restart_registration":
+            # Начинаем регистрацию заново
+            clear_user_data(chat_id)
+            start_registration(chat_id)
+            msg = bot.send_message(chat_id, "🔄 Регистрация начата заново.\n\nВведите ваше имя (имя родителя):", reply_markup=get_cancel_button())
+            bot.register_next_step_handler(msg, process_parent_name)
+            logger.info(f"User {chat_id} restarted registration")
+            
+        elif call.data == "continue_registration":
+            # Продолжаем с текущего этапа
+            current_stage = get_registration_stage(chat_id)
+            
+            # Проверяем таймаут
+            start_time = get_registration_start_time(chat_id)
+            if time.time() - start_time > 30 * 60:  # 30 минут
+                clear_user_data(chat_id)
+                bot.edit_message_text(
+                    "⏰ Время регистрации истекло. Начните заново.",
+                    chat_id, call.message.message_id
+                )
+                bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+                return
+            
+            # Определяем следующий шаг на основе текущего этапа
+            if current_stage == "parent_name":
+                bot.edit_message_text(
+                    "🔄 Продолжаем регистрацию.\n\nВведите ваше имя (имя родителя):",
+                    chat_id, call.message.message_id
+                )
+                msg = bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
+                bot.register_next_step_handler(msg, process_parent_name)
+                
+            elif current_stage == "student_name":
+                bot.edit_message_text(
+                    "🔄 Продолжаем регистрацию.\n\nВведите имя ученика:",
+                    chat_id, call.message.message_id
+                )
+                msg = bot.send_message(chat_id, "Введите имя ученика:", reply_markup=get_cancel_button())
+                bot.register_next_step_handler(msg, process_student_name)
+                
+            elif current_stage == "age":
+                bot.edit_message_text(
+                    "🔄 Продолжаем регистрацию.\n\nВведите возраст ученика:",
+                    chat_id, call.message.message_id
+                )
+                msg = bot.send_message(chat_id, "Введите возраст ученика:", reply_markup=get_cancel_button())
+                bot.register_next_step_handler(msg, process_age)
+                
+            elif current_stage == "course":
+                courses = get_active_courses()
+                if not courses:
+                    bot.edit_message_text(
+                        "⚠️ Курсы временно недоступны.",
+                        chat_id, call.message.message_id
+                    )
+                    return
+                
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+                for course in courses:
+                    markup.add(course[1])
+                markup.add("🔙 Отмена")
+                
+                bot.edit_message_text(
+                    "🔄 Продолжаем регистрацию.\n\nВыберите курс:",
+                    chat_id, call.message.message_id
+                )
+                msg = bot.send_message(chat_id, "Выберите курс:", reply_markup=markup)
+                bot.register_next_step_handler(msg, process_course)
+                
+            elif current_stage == "confirmation":
+                bot.edit_message_text(
+                    "🔄 Продолжаем регистрацию.\n\nПодтвердите данные:",
+                    chat_id, call.message.message_id
+                )
+                send_confirmation(bot, chat_id)
+            
+            logger.info(f"User {chat_id} continued registration from stage: {current_stage}")
 
 
 def register_handlers(bot):

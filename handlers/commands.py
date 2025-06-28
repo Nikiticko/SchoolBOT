@@ -237,10 +237,18 @@ def register(bot, logger):
             return
         
         chat_id = call.message.chat.id
+        
+        # Проверяем, что заявка существует
         app = get_application_by_tg_id(str(chat_id))
         if not app:
-            bot.send_message(chat_id, "Заявка не найдена.")
+            bot.send_message(chat_id, "❌ Заявка не найдена.", reply_markup=menu.get_main_menu())
             return
+        
+        # Проверяем, что заявка не назначена
+        if app[9] == "Назначено":
+            bot.send_message(chat_id, "❌ Нельзя редактировать назначенную заявку.", reply_markup=menu.get_main_menu())
+            return
+        
         parent_name = app[2]
         student_name = app[3]
         age = app[4]
@@ -289,9 +297,9 @@ def register(bot, logger):
         }
         
         if field in prompts:
-            bot.send_message(chat_id, prompts[field], reply_markup=menu.get_cancel_button())
+            msg = bot.send_message(chat_id, prompts[field], reply_markup=menu.get_cancel_button())
             user_data[chat_id]["editing_field"] = field
-            bot.register_next_step_handler(call.message, process_edit_field)
+            bot.register_next_step_handler(msg, process_edit_field)
         else:
             bot.send_message(chat_id, "❌ Неизвестное поле для редактирования")
 
@@ -330,8 +338,8 @@ def register(bot, logger):
             is_valid, error_msg = validate_user_input(value, "message")
         
         if not is_valid:
-            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
-            bot.register_next_step_handler(message, process_edit_field)
+            msg = bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:", reply_markup=menu.get_cancel_button())
+            bot.register_next_step_handler(msg, process_edit_field)
             return
         
         # Сохраняем новое значение
@@ -351,24 +359,52 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "confirm_edit_application")
     def handle_confirm_edit_application(call):
         chat_id = call.message.chat.id
-        app = user_data.get(chat_id)
-        if not app:
-            bot.send_message(chat_id, "Данные не найдены.")
+        
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "confirm_edit_application")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
             return
-        # Обновляем заявку в БД
-        update_application(
-            app["app_id"], 
-            app["parent_name"], 
-            app["student_name"], 
-            app["age"], 
-            app["contact"], 
-            app["course"]
-        )
-        # Уведомляем пользователя и админа
-        bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=menu.get_main_menu())
-        from handlers.admin import notify_admin_new_application
-        notify_admin_new_application(bot, app)
-        user_data.pop(chat_id, None)
+        
+        # Проверяем, что заявка все еще существует
+        app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана администратором.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        
+        # Проверяем, что заявка не назначена
+        if app[9] == "Назначено":
+            bot.send_message(chat_id, "❌ Нельзя редактировать назначенную заявку.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        
+        edit_data = user_data.get(chat_id)
+        if not edit_data:
+            bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_main_menu())
+            return
+        
+        try:
+            # Обновляем заявку в БД
+            update_application(
+                edit_data["app_id"], 
+                edit_data["parent_name"], 
+                edit_data["student_name"], 
+                edit_data["age"], 
+                edit_data["contact"], 
+                edit_data["course"]
+            )
+            # Уведомляем пользователя и админа
+            bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=menu.get_main_menu())
+            from handlers.admin import notify_admin_new_application
+            notify_admin_new_application(bot, edit_data)
+            user_data.pop(chat_id, None)
+            log_user_action(logger, call.from_user.id, "edited_application")
+            
+        except Exception as e:
+            bot.send_message(chat_id, "❌ Ошибка при обновлении заявки. Попробуйте позже.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            log_error(logger, e, f"Error updating application for user {chat_id}")
 
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_edit_application")
     def handle_cancel_edit_application(call):
@@ -380,10 +416,10 @@ def register(bot, logger):
     def handle_cancel_application(call):
         chat_id = call.message.chat.id
         # Запрашиваем причину отмены
-        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены заявки:", reply_markup=menu.get_cancel_button())
+        msg = bot.send_message(chat_id, "Пожалуйста, укажите причину отмены заявки:", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = user_data.get(chat_id, {})
         user_data[chat_id]["cancel_stage"] = True
-        bot.register_next_step_handler(call.message, process_cancel_reason)
+        bot.register_next_step_handler(msg, process_cancel_reason)
 
     def process_cancel_reason(message):
         chat_id = message.chat.id
@@ -403,30 +439,59 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "confirm_cancel_application")
     def handle_confirm_cancel_application(call):
         chat_id = call.message.chat.id
+        
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "confirm_cancel_application")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
+            return
+        
+        # Проверяем, что заявка все еще существует
         app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        
+        # Проверяем, что заявка не назначена
+        if app[9] == "Назначено":
+            bot.send_message(chat_id, "❌ Нельзя отменить назначенную заявку. Обратитесь к администратору.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        
         reason = user_data.get(chat_id, {}).get("cancel_reason", "")
-        if app:
+        
+        try:
+            # Архивируем заявку
             archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Заявка отменена")
-        # Удаляем заявку из БД
-        delete_application_by_tg_id(chat_id)
-        bot.send_message(chat_id, "Ваша заявка отменена.", reply_markup=menu.get_main_menu())
-        # Подробное уведомление админу
-        parent_name = app[2] if app else '-'
-        student_name = app[3] if app else '-'
-        course = app[6] if app else '-'
-        msg = (
-            f"❌ Пользователь отменил заявку\n"
-            f"👤 Родитель: {parent_name}\n"
-            f"🧒 Ученик: {student_name}\n"
-            f"📘 Курс: {course}\n"
-            f"Причина: {reason}"
-        )
-        bot.send_message(ADMIN_ID, msg)
-        user_data.pop(chat_id, None)
+            # Удаляем заявку из БД
+            delete_application_by_tg_id(chat_id)
+            bot.send_message(chat_id, "✅ Ваша заявка отменена.", reply_markup=menu.get_main_menu())
+            
+            # Подробное уведомление админу
+            parent_name = app[2] if app else '-'
+            student_name = app[3] if app else '-'
+            course = app[6] if app else '-'
+            msg = (
+                f"❌ Пользователь отменил заявку\n"
+                f"👤 Родитель: {parent_name}\n"
+                f"🧒 Ученик: {student_name}\n"
+                f"📘 Курс: {course}\n"
+                f"Причина: {reason}"
+            )
+            bot.send_message(ADMIN_ID, msg)
+            user_data.pop(chat_id, None)
+            log_user_action(logger, call.from_user.id, "cancelled_application")
+            
+        except Exception as e:
+            bot.send_message(chat_id, "❌ Ошибка при отмене заявки. Попробуйте позже.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            log_error(logger, e, f"Error cancelling application for user {chat_id}")
 
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_cancel_application")
     def handle_cancel_cancel_application(call):
         chat_id = call.message.chat.id
+        user_data.pop(chat_id, None)  # Очищаем состояние
         bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_main_menu())
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("course_info:"))
@@ -451,10 +516,10 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_lesson_user")
     def handle_cancel_lesson_user(call):
         chat_id = call.message.chat.id
-        bot.send_message(chat_id, "Пожалуйста, укажите причину отмены урока:", reply_markup=menu.get_cancel_button())
+        msg = bot.send_message(chat_id, "Пожалуйста, укажите причину отмены урока:", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = user_data.get(chat_id, {})
         user_data[chat_id]["cancel_lesson_stage"] = True
-        bot.register_next_step_handler(call.message, process_cancel_lesson_reason)
+        bot.register_next_step_handler(msg, process_cancel_lesson_reason)
 
     def process_cancel_lesson_reason(message):
         chat_id = message.chat.id
@@ -473,13 +538,35 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "confirm_cancel_lesson_user")
     def handle_confirm_cancel_lesson_user(call):
         chat_id = call.message.chat.id
+        
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "confirm_cancel_lesson_user")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
+            return
+        
+        # Проверяем, что заявка все еще существует
         app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        
+        # Проверяем, что заявка назначена
+        if app[9] != "Назначено":
+            bot.send_message(chat_id, "❌ Нельзя отменить неназначенный урок.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            return
+        
         reason = user_data.get(chat_id, {}).get("cancel_lesson_reason", "")
-        if app:
+        
+        try:
+            # Архивируем заявку
             archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Урок отменён")
             # Удаляем заявку из БД
             delete_application_by_tg_id(chat_id)
-            bot.send_message(chat_id, "Ваш урок отменён.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "✅ Ваш урок отменён.", reply_markup=menu.get_main_menu())
+            
             # Уведомление админу
             parent_name = app[2] if app else '-'
             student_name = app[3] if app else '-'
@@ -492,11 +579,18 @@ def register(bot, logger):
                 f"Причина: {reason}"
             )
             bot.send_message(ADMIN_ID, msg)
-        user_data.pop(chat_id, None)
+            user_data.pop(chat_id, None)
+            log_user_action(logger, call.from_user.id, "cancelled_lesson")
+            
+        except Exception as e:
+            bot.send_message(chat_id, "❌ Ошибка при отмене урока. Попробуйте позже.", reply_markup=menu.get_main_menu())
+            user_data.pop(chat_id, None)
+            log_error(logger, e, f"Error cancelling lesson for user {chat_id}")
 
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_cancel_lesson_user")
     def handle_cancel_cancel_lesson_user(call):
         chat_id = call.message.chat.id
+        user_data.pop(chat_id, None)  # Очищаем состояние
         bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_main_menu())
 
     @bot.message_handler(func=lambda m: m.text == "🆘 Обратиться к админу")

@@ -80,9 +80,9 @@ def handle_cancel_action(bot, message, action_type="регистрация", log
     chat_id = message.chat.id
     user_id = message.from_user.id
     
-    # Очищаем данные пользователя
-    from state.users import user_data
-    user_data.pop(chat_id, None)
+    # ИСПРАВЛЕНО: Используем новый StateManager для очистки данных
+    from state.users import clear_user_data
+    clear_user_data(chat_id)
     
     # Определяем куда возвращаться
     if action_type == "курс":

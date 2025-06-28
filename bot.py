@@ -22,7 +22,10 @@ from handlers import commands, registration, admin
 from handlers.course_editor import register_course_editor
 from handlers.admin_actions import register_admin_actions, set_review_request_function
 from handlers.reviews import register as register_reviews
+from state.users import cleanup_expired_registrations
 import os
+import threading
+import time
 os.system('cls || clear')
 
 # Настройка логирования
@@ -51,6 +54,27 @@ try:
     logger.info(f"✅ Monitoring started with interval {CHECK_INTERVAL}s")
 except Exception as e:
     error_msg = handle_exception(e, logger, "Monitoring startup")
+    logger.error(f"❌ {error_msg}")
+
+# Функция для периодической очистки просроченных регистраций
+def cleanup_registrations_periodically():
+    """Периодически очищает просроченные регистрации"""
+    while True:
+        try:
+            time.sleep(300)  # Проверяем каждые 5 минут
+            cleaned_count = cleanup_expired_registrations(timeout_minutes=30)
+            if cleaned_count > 0:
+                logger.info(f"🧹 Cleaned up {cleaned_count} expired registrations")
+        except Exception as e:
+            log_error(logger, e, "Error in registration cleanup")
+
+# Запуск очистки регистраций в отдельном потоке
+try:
+    cleanup_thread = threading.Thread(target=cleanup_registrations_periodically, daemon=True)
+    cleanup_thread.start()
+    logger.info("✅ Registration cleanup thread started")
+except Exception as e:
+    error_msg = handle_exception(e, logger, "Registration cleanup startup")
     logger.error(f"❌ {error_msg}")
 
 # Регистрация всех обработчиков

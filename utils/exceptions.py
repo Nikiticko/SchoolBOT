@@ -123,12 +123,8 @@ class MonitoringException(BotException):
 
 class RegistrationException(BotException):
     """Исключение для ошибок регистрации"""
-    
-    def __init__(self, message: str, stage: str = None, user_id: int = None):
-        super().__init__(message, "REGISTRATION_ERROR", {
-            "stage": stage,
-            "user_id": user_id
-        })
+    def __init__(self, message: str, error_code: str = "REGISTRATION_ERROR", details: dict = None):
+        super().__init__(message, error_code, details)
 
 class RegistrationTimeoutException(RegistrationException):
     """Исключение для истечения времени регистрации"""
