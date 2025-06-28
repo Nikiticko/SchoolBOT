@@ -25,6 +25,7 @@ import tempfile
 import os
 import re
 import openpyxl
+from utils.security_logger import security_logger
 
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)
@@ -46,6 +47,45 @@ def notify_admin_new_application(bot, application_data):
 
 
 def register(bot, logger):
+    @bot.message_handler(commands=["security_report"])
+    def handle_security_report(message):
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command security_report")
+            return
+        
+        try:
+            # Получаем отчет за последние 24 часа
+            report = security_logger.get_security_report(hours=24)
+            
+            report_text = (
+                "🔒 Отчет по безопасности (за последние 24 часа):\n\n"
+                f"🚫 Неудачные попытки входа: {report.get('failed_logins', 0)}\n"
+                f"⚠️ Подозрительная активность: {report.get('suspicious_activities', 0)}\n"
+                f"⏱️ Превышения rate limit: {report.get('rate_limit_exceeded', 0)}\n"
+                f"🚫 Заблокированные пользователи: {report.get('user_bans', 0)}\n"
+                f"🚪 Несанкционированный доступ: {report.get('unauthorized_access', 0)}\n"
+                f"❌ Ошибки валидации: {report.get('input_validation_failed', 0)}\n\n"
+                "📊 Общая статистика безопасности:"
+            )
+            
+            # Добавляем общую оценку безопасности
+            total_events = sum(report.values())
+            if total_events == 0:
+                report_text += "\n✅ Все спокойно, угроз не обнаружено"
+            elif total_events < 10:
+                report_text += "\n🟡 Низкий уровень угроз"
+            elif total_events < 50:
+                report_text += "\n🟠 Средний уровень угроз"
+            else:
+                report_text += "\n🔴 Высокий уровень угроз!"
+            
+            bot.send_message(message.chat.id, report_text)
+            logger.info(f"Admin {message.from_user.id} requested security report")
+            
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Ошибка при получении отчета безопасности: {str(e)}")
+            logger.error(f"Error in security report: {e}")
+
     @bot.message_handler(commands=["ClearApplications"])
     def handle_clear_command(message):
         if not is_admin(message.from_user.id):

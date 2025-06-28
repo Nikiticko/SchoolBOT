@@ -13,6 +13,7 @@ from data.db import (
     get_finished_count_by_tg_id
 )
 from utils.logger import log_user_action, log_error
+from utils.security import check_user_security, validate_user_input, security_manager
 
 
 def handle_existing_registration(bot, chat_id):
@@ -25,6 +26,12 @@ def register(bot, logger):
     def handle_signup(message):
         try:
             chat_id = message.chat.id
+
+            # Проверка безопасности
+            security_ok, error_msg = check_user_security(message.from_user.id, "signup")
+            if not security_ok:
+                bot.send_message(chat_id, f"🚫 {error_msg}")
+                return
 
             # 1. Проверка отмен
             if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
@@ -76,12 +83,25 @@ def register(bot, logger):
     def process_parent_name(message):
         chat_id = message.chat.id
         
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "process_parent_name")
+        if not security_ok:
+            bot.send_message(chat_id, f"🚫 {error_msg}")
+            return
+        
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
         if user_data.get(chat_id, {}).get("stage") != "parent_name":
+            return
+        
+        # Валидация имени
+        is_valid, error_msg = validate_user_input(message.text, "name")
+        if not is_valid:
+            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
+            bot.register_next_step_handler(message, process_parent_name)
             return
             
         user_data[chat_id]["parent_name"] = message.text.strip()
@@ -92,12 +112,25 @@ def register(bot, logger):
     def process_student_name(message):
         chat_id = message.chat.id
         
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "process_student_name")
+        if not security_ok:
+            bot.send_message(chat_id, f"🚫 {error_msg}")
+            return
+        
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
         if user_data.get(chat_id, {}).get("stage") != "student_name":
+            return
+        
+        # Валидация имени
+        is_valid, error_msg = validate_user_input(message.text, "name")
+        if not is_valid:
+            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
+            bot.register_next_step_handler(message, process_student_name)
             return
             
         user_data[chat_id]["student_name"] = message.text.strip()
@@ -108,12 +141,25 @@ def register(bot, logger):
     def process_age(message):
         chat_id = message.chat.id
         
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "process_age")
+        if not security_ok:
+            bot.send_message(chat_id, f"🚫 {error_msg}")
+            return
+        
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
         if user_data.get(chat_id, {}).get("stage") != "age":
+            return
+        
+        # Валидация возраста
+        is_valid, error_msg = validate_user_input(message.text, "age")
+        if not is_valid:
+            bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:")
+            bot.register_next_step_handler(message, process_age)
             return
             
         user_data[chat_id]["age"] = message.text.strip()
@@ -133,6 +179,12 @@ def register(bot, logger):
 
     def process_course(message):
         chat_id = message.chat.id
+        
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "process_course")
+        if not security_ok:
+            bot.send_message(chat_id, f"🚫 {error_msg}")
+            return
         
         # Проверяем отмену
         if message.text == "🔙 Отмена":
@@ -180,6 +232,12 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda call: call.data in ["confirm_registration", "cancel_registration"])
     def handle_confirmation(call):
         chat_id = call.message.chat.id
+
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "confirm_registration")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
+            return
 
         if call.data == "cancel_registration":
             handle_cancel_action(bot, call.message, "регистрация", logger)
