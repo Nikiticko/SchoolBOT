@@ -19,7 +19,7 @@ from data.db import (
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from utils.security import check_user_security, validate_user_input, security_manager
-from utils.decorators import error_handler
+from utils.decorators import error_handler, ensure_text_message, ensure_stage
 
 
 def handle_existing_registration(bot, chat_id):
@@ -98,6 +98,8 @@ def register(bot, logger):
         bot.register_next_step_handler(msg, process_parent_name)
         logger.info(f"User {chat_id} started registration")
 
+    @ensure_text_message
+    @ensure_stage(lambda m: get_registration_stage(m.chat.id), "parent_name", error_message="Сначала введите имя родителя.")
     def process_parent_name(message):
         chat_id = message.chat.id
         
@@ -112,11 +114,6 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
-        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
-        if get_registration_stage(chat_id) != "parent_name":
-            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
-            return
-        
         # Проверяем таймаут
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
@@ -138,6 +135,8 @@ def register(bot, logger):
         msg = bot.send_message(chat_id, "Введите имя ученика:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(msg, process_student_name)
 
+    @ensure_text_message
+    @ensure_stage(lambda m: get_registration_stage(m.chat.id), "student_name", error_message="Сначала введите имя ученика.")
     def process_student_name(message):
         chat_id = message.chat.id
         
@@ -152,11 +151,6 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
-        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
-        if get_registration_stage(chat_id) != "student_name":
-            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
-            return
-        
         # Проверяем таймаут
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
@@ -178,6 +172,8 @@ def register(bot, logger):
         msg = bot.send_message(chat_id, "Введите возраст ученика:", reply_markup=get_cancel_button())
         bot.register_next_step_handler(msg, process_age)
 
+    @ensure_text_message
+    @ensure_stage(lambda m: get_registration_stage(m.chat.id), "age", error_message="Сначала введите возраст ученика.")
     def process_age(message):
         chat_id = message.chat.id
         
@@ -192,11 +188,6 @@ def register(bot, logger):
             handle_cancel_action(bot, message, "регистрация", logger)
             return
             
-        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
-        if get_registration_stage(chat_id) != "age":
-            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
-            return
-        
         # Проверяем таймаут
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
@@ -228,6 +219,8 @@ def register(bot, logger):
         msg = bot.send_message(chat_id, "Выберите курс:", reply_markup=markup)
         bot.register_next_step_handler(msg, process_course)
 
+    @ensure_text_message
+    @ensure_stage(lambda m: get_registration_stage(m.chat.id), "course", error_message="Сначала выберите курс.")
     def process_course(message):
         chat_id = message.chat.id
         
@@ -240,18 +233,6 @@ def register(bot, logger):
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             handle_cancel_action(bot, message, "регистрация", logger)
-            return
-
-        # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
-        if get_registration_stage(chat_id) != "course":
-            bot.send_message(chat_id, "⚠️ Неверный этап регистрации. Начните заново.")
-            return
-        
-        # Проверяем таймаут
-        start_time = get_registration_start_time(chat_id)
-        if time.time() - start_time > 30 * 60:  # 30 минут
-            clear_user_data(chat_id)
-            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
             return
 
         selected = message.text.strip()

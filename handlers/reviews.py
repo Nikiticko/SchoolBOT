@@ -7,6 +7,7 @@ from data.db import (
 )
 from utils.menu import get_main_menu
 from utils.logger import log_error, log_user_action
+from utils.decorators import error_handler, ensure_text_message, ensure_stage
 
 # Словарь для хранения состояния пользователей при оставлении отзывов
 review_states = {}
@@ -153,6 +154,8 @@ def register(bot, logger):
             log_error(logger, e, f"Handling skip feedback for user {call.from_user.id}")
     
     @bot.message_handler(func=lambda m: m.text and str(m.chat.id) in review_states and review_states[str(m.chat.id)].get("stage") == "feedback")
+    @ensure_text_message
+    @ensure_stage(lambda m: review_states.get(str(m.chat.id), {}).get("stage"), "feedback", error_message="Сначала выберите оценку занятия.")
     def handle_feedback_text(message):
         """Обрабатывает текстовый отзыв"""
         try:
