@@ -1,10 +1,21 @@
 from telebot import types
 from data.db import get_all_courses, add_course, delete_course, update_course, toggle_course_active
-from handlers.admin import is_admin
-import utils.menu as menu
-from utils.menu import get_cancel_button, handle_cancel_action
+from config import ADMIN_ID
+from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action, get_course_editor_menu
+from utils.security_logger import security_logger
 
-def register_course_editor(bot, logger):
+def register_courses_handlers(bot, logger):
+    def is_admin(user_id):
+        return str(user_id) == str(ADMIN_ID)
+
+    @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
+    def handle_course_menu(message):
+        try:
+            bot.send_message(message.chat.id, "🔧 Меню управления курсами", reply_markup=get_course_editor_menu())
+            logger.info(f"Admin {message.from_user.id} opened course editor menu")
+        except Exception as e:
+            logger.error(f"Error in handle_course_menu: {e}")
+
     @bot.message_handler(func=lambda m: m.text == "➕ Добавить курс" and is_admin(m.from_user.id))
     def handle_add_course(message):
         try:
@@ -36,7 +47,7 @@ def register_course_editor(bot, logger):
             desc = message.text.strip()
             try:
                 add_course(name, desc)
-                bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=menu.get_admin_menu())
+                bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=get_course_editor_menu())
                 logger.info(f"Admin {message.from_user.id} added new course: {name}")
             except Exception as e:
                 bot.send_message(message.chat.id, "❌ Не удалось добавить курс. Попробуйте позже.")
@@ -153,7 +164,7 @@ def register_course_editor(bot, logger):
             desc = message.text.strip()
             try:
                 update_course(course_id, name, desc)
-                bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=menu.get_admin_menu())
+                bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=get_course_editor_menu())
                 logger.info(f"Admin {message.from_user.id} updated course {course_id} to: {name}")
             except Exception as e:
                 bot.send_message(message.chat.id, "❌ Не удалось обновить курс. Попробуйте позже.")
@@ -164,21 +175,24 @@ def register_course_editor(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "🔙 Назад" and is_admin(m.from_user.id))
     def handle_back_to_admin_panel(message):
         try:
-            bot.send_message(message.chat.id, "🔙 Возврат в админ-панель", reply_markup=menu.get_admin_menu())
+            bot.send_message(message.chat.id, "🔙 Возврат в админ-панель", reply_markup=get_admin_menu())
             logger.info(f"Admin {message.from_user.id} returned to admin panel")
         except Exception as e:
             logger.error(f"Error in handle_back_to_admin_panel: {e}")
 
-            
     @bot.message_handler(func=lambda m: m.text == "👁 Просмотреть все курсы" and is_admin(m.from_user.id))
     def handle_view_all_courses(message):
-        courses = get_all_courses()
-        if not courses:
-            bot.send_message(message.chat.id, "Нет курсов в системе.")
-            return
-        msg = "<b>Все курсы:</b>\n\n"
-        for c in courses:
-            course_id, name, desc, active = c
-            status = "✅ Активен" if active else "🚫 Неактивен"
-            msg += f"<b>{name}</b> ({status})\nОписание: {desc}\n\n"
-        bot.send_message(message.chat.id, msg, parse_mode="HTML")
+        try:
+            courses = get_all_courses()
+            if not courses:
+                bot.send_message(message.chat.id, "Нет курсов в системе.")
+                return
+            msg = "<b>Все курсы:</b>\n\n"
+            for c in courses:
+                course_id, name, desc, active = c
+                status = "✅ Активен" if active else "🚫 Неактивен"
+                msg += f"<b>{name}</b> ({status})\nОписание: {desc}\n\n"
+            bot.send_message(message.chat.id, msg, parse_mode="HTML")
+            logger.info(f"Admin {message.from_user.id} viewed all courses")
+        except Exception as e:
+            logger.error(f"Error in handle_view_all_courses: {e}") 

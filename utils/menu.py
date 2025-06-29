@@ -20,6 +20,17 @@ def get_admin_menu():
     markup.add("⬇️ Выгрузить данные")
     return markup
 
+def get_appropriate_menu(user_id):
+    """Возвращает подходящее меню в зависимости от роли пользователя"""
+    if str(user_id) == str(ADMIN_ID):
+        return get_admin_menu()
+    else:
+        return get_main_menu()
+
+def is_admin(user_id):
+    """Проверяет, является ли пользователь администратором"""
+    return str(user_id) == str(ADMIN_ID)
+
 def create_admin_menu():
     """Инлайн-меню для администратора с новыми опциями БД"""
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -100,7 +111,7 @@ def handle_cancel_action(bot, message, action_type="регистрация", log
         bot.send_message(chat_id, "❌ Отмена заявки отменена", reply_markup=get_admin_menu())
     else:
         # Для обычной регистрации - возврат в главное меню
-        bot.send_message(chat_id, "❌ Регистрация отменена", reply_markup=get_main_menu())
+        bot.send_message(chat_id, "❌ Регистрация отменена", reply_markup=get_appropriate_menu(user_id))
     
     # Логируем отмену
     if logger:

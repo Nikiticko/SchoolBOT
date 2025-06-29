@@ -9,18 +9,23 @@ from data.db import (
     validate_date_format
 )
 from state.users import writing_ids
-from handlers.admin import is_admin
+from config import ADMIN_ID
 import utils.menu as menu
-cancel_reasons_buffer = {}
-finish_feedback_buffer = {}
 
 # Глобальная переменная для функции отправки отзывов
 send_review_request_func = None
+
+# Глобальные буферы для обработки отмен и завершений
+cancel_reasons_buffer = {}
+finish_feedback_buffer = {}
 
 def set_review_request_function(func):
     """Устанавливает функцию для отправки запросов на отзывы"""
     global send_review_request_func
     send_review_request_func = func
+
+def is_admin(user_id):
+    return str(user_id) == str(ADMIN_ID)
 
 def register_admin_actions(bot, logger):
 
@@ -404,4 +409,75 @@ def register_admin_actions(bot, logger):
 
         writing_ids.discard(message.from_user.id)
         logger.info(f"Admin {message.from_user.id} rescheduled lesson for application {app_id}")
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("assign:"))
+    def handle_assign_lesson(call):
+        try:
+            app_id = int(call.data.split(":")[1])
+            app = get_application_by_id(app_id)
+            if not app:
+                bot.answer_callback_query(call.id, "Заявка не найдена")
+                return
+            chat_id = call.message.chat.id
+            msg = (
+                f"🕒 Назначение урока для заявки #{app_id}\n"
+                f"👤 Родитель: {app[2]}\n"
+                f"🧒 Ученик: {app[3]}\n"
+                f"📘 Курс: {app[6]}\n\n"
+                f"Введите дату и время урока в формате: 22.06 17:30"
+            )
+            # Сохраняем app_id в user_data для последующего шага
+            from state.users import user_data
+            user_data[chat_id] = {"assign_app_id": app_id}
+            bot.send_message(chat_id, msg)
+            bot.register_next_step_handler(call.message, process_assign_date)
+            logger.info(f"Admin {call.from_user.id} started assigning lesson for application {app_id}")
+        except Exception as e:
+            logger.error(f"Error in handle_assign_lesson: {e}")
+
+    def process_assign_date(message):
+        from state.users import user_data
+        chat_id = message.chat.id
+        app_id = user_data.get(chat_id, {}).get("assign_app_id")
+        if not app_id:
+            bot.send_message(chat_id, "❌ Не найдена заявка для назначения.")
+            return
+        date_text = message.text.strip()
+        # Валидация даты
+        if not validate_date_format(date_text):
+            bot.send_message(chat_id, "❌ Неверный формат даты. Введите в формате: 22.06 17:30")
+            bot.register_next_step_handler(message, process_assign_date)
+            return
+        user_data[chat_id]["assign_date"] = date_text
+        bot.send_message(chat_id, "Введите ссылку на урок (или - если нет):")
+        bot.register_next_step_handler(message, process_assign_link)
+
+    def process_assign_link(message):
+        from state.users import user_data
+        chat_id = message.chat.id
+        app_id = user_data.get(chat_id, {}).get("assign_app_id")
+        date_text = user_data.get(chat_id, {}).get("assign_date")
+        if not app_id or not date_text:
+            bot.send_message(chat_id, "❌ Не найдена заявка или дата для назначения.")
+            return
+        link = message.text.strip()
+        try:
+            update_application_lesson(app_id, date_text, link)
+            bot.send_message(chat_id, f"✅ Урок назначен!\nДата: {date_text}\nСсылка: {link}", reply_markup=menu.get_admin_menu())
+            # Уведомляем пользователя
+            app = get_application_by_id(app_id)
+            if app:
+                tg_id = app[1]
+                parent_name = app[2]
+                student_name = app[3]
+                course = app[6]
+                bot.send_message(
+                    int(tg_id),
+                    f"✅ Ваш урок назначен!\n\nКурс: {course}\nУченик: {student_name}\nДата: {date_text}\nСсылка: {link}"
+                )
+            user_data.pop(chat_id, None)
+            logger.info(f"Admin {message.from_user.id} assigned lesson for application {app_id}")
+        except Exception as e:
+            bot.send_message(chat_id, "❌ Ошибка при назначении урока. Попробуйте позже.")
+            logger.error(f"Error in process_assign_link: {e}")
 

@@ -4,6 +4,7 @@ from utils.security import check_user_security, security_manager
 from utils.logger import log_error, log_user_action
 from typing import Callable, Any
 import functools
+from config import ADMIN_ID
 
 def security_middleware(bot: TeleBot, logger):
     """Middleware для автоматической проверки безопасности"""
@@ -69,7 +70,6 @@ def admin_only_middleware(bot: TeleBot, logger):
                     return func(message_or_call, *args, **kwargs)
                 
                 # Проверяем права администратора
-                from handlers.admin import is_admin
                 if not is_admin(user_id):
                     error_msg = "У вас нет прав для выполнения этого действия"
                     if isinstance(message_or_call, Message):
@@ -185,4 +185,7 @@ def log_activity_middleware(bot: TeleBot, logger, activity_name: str = None):
                 return func(message_or_call, *args, **kwargs)
         
         return wrapper
-    return decorator 
+    return decorator
+
+def is_admin(user_id):
+    return str(user_id) == str(ADMIN_ID) 

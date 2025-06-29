@@ -18,9 +18,8 @@ from utils.exceptions import (
 from state.state_manager import state_manager
 
 # Регистрация хендлеров
-from handlers import commands, registration, admin, reviews, course_editor
-from handlers.course_editor import register_course_editor
-from handlers.admin_actions import register_admin_actions, set_review_request_function
+from handlers import commands, registration, admin, reviews
+from handlers.admin import register_all_admin_handlers
 from handlers.reviews import register as register_reviews
 from state.users import cleanup_expired_registrations
 import os
@@ -104,13 +103,8 @@ except Exception as e:
 try:
     commands.register_handlers(bot)
     registration.register_handlers(bot)
-    admin.register_handlers(bot)  # Регистрируем новые админские хендлеры
-    register_course_editor(bot, logger)
-    register_admin_actions(bot, logger)
-    send_review_request = register_reviews(bot, logger)  # обработчики отзывов
-    
-    # Устанавливаем функцию отправки отзывов для admin_actions
-    set_review_request_function(send_review_request)
+    admin.register_all_admin_handlers(bot, logger)
+    register_reviews(bot, logger)  # обработчики отзывов
     
     logger.info("✅ All handlers registered successfully")
 except Exception as e:

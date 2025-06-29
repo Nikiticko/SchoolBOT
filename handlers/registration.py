@@ -6,8 +6,7 @@ from state.users import (
     get_registration_stage, update_registration_stage, 
     get_registration_start_time, cleanup_expired_registrations, clear_user_data
 )
-from utils.menu import get_main_menu, get_admin_menu, get_cancel_button, handle_cancel_action
-from handlers.admin import notify_admin_new_application, is_admin
+from utils.menu import get_main_menu, get_admin_menu, get_cancel_button, handle_cancel_action, get_appropriate_menu
 from data.db import (
     add_application,
     get_application_by_tg_id,
@@ -15,15 +14,18 @@ from data.db import (
     get_archive_count_by_tg_id,
     format_date_for_display,
     get_cancelled_count_by_tg_id,
-    get_finished_count_by_tg_id
+    get_finished_count_by_tg_id,
+    is_user_banned,
+    get_ban_reason
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from utils.security import check_user_security, validate_user_input, security_manager
 from utils.decorators import error_handler, ensure_text_message, ensure_stage
+from config import ADMIN_ID
 
 
 def handle_existing_registration(bot, chat_id):
-    markup = get_main_menu()
+    markup = get_appropriate_menu(chat_id)
     bot.send_message(chat_id, "📝 Вы уже оставляли заявку. Ожидайте назначения урока.", reply_markup=markup)
 
 
@@ -32,6 +34,7 @@ def register(bot, logger):
     @error_handler()
     def handle_signup(message):
         chat_id = message.chat.id
+        
         # Проверка безопасности
         security_ok, error_msg = check_user_security(message.from_user.id, "signup")
         if not security_ok:
@@ -47,7 +50,7 @@ def register(bot, logger):
             elif status == "Назначено":
                 course, date, link = existing_app[6], existing_app[7], existing_app[8]
                 formatted_date = format_date_for_display(date)
-                bot.send_message(chat_id, f"✅ У вас уже назначен урок:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
+                bot.send_message(chat_id, f"✅ У вас уже назначен урок:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_appropriate_menu(chat_id))
                 return
         # 1. Проверка отмен
         if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
@@ -118,7 +121,7 @@ def register(bot, logger):
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
             clear_user_data(chat_id)
-            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_appropriate_menu(chat_id))
             return
         
         # Валидация имени
@@ -155,7 +158,7 @@ def register(bot, logger):
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
             clear_user_data(chat_id)
-            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_appropriate_menu(chat_id))
             return
         
         # Валидация имени
@@ -192,7 +195,7 @@ def register(bot, logger):
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
             clear_user_data(chat_id)
-            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_appropriate_menu(chat_id))
             return
         
         # Валидация возраста
@@ -240,7 +243,7 @@ def register(bot, logger):
         course_names = [c[1] for c in courses]
 
         if selected not in course_names:
-            msg = bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.", reply_markup=get_main_menu())
+            msg = bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.", reply_markup=get_appropriate_menu(chat_id))
             bot.register_next_step_handler(msg, process_course)
             return
 
@@ -291,14 +294,14 @@ def register(bot, logger):
 
         # ИСПРАВЛЕНО: Проверяем правильный этап и таймаут
         if get_registration_stage(chat_id) != "confirmation":
-            bot.send_message(chat_id, "⚠️ Подтверждение недоступно. Начните заново.")
+            bot.send_message(chat_id, "⚠️ Подтверждение недоступно. Начните заново.", reply_markup=get_appropriate_menu(chat_id))
             return
         
         # Проверяем таймаут
         start_time = get_registration_start_time(chat_id)
         if time.time() - start_time > 30 * 60:  # 30 минут
             clear_user_data(chat_id)
-            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_appropriate_menu(chat_id))
             return
 
         # ИСПРАВЛЕНО: Используем StateManager и добавляем обработку ошибок
@@ -314,20 +317,19 @@ def register(bot, logger):
                 contact=data["contact"],
                 course=data["course"]
             )
-            notify_admin_new_application(bot, data)
-            bot.send_message(chat_id, "✅ Ваша заявка отправлена!", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "✅ Ваша заявка отправлена!", reply_markup=get_appropriate_menu(chat_id))
             clear_user_data(chat_id)
             logger.info(f"User {chat_id} submitted application")
             
         except ValueError as e:
             # Обработка ошибки дублирования заявки
-            bot.send_message(chat_id, f"⚠️ {str(e)}", reply_markup=get_main_menu())
+            bot.send_message(chat_id, f"⚠️ {str(e)}", reply_markup=get_appropriate_menu(chat_id))
             clear_user_data(chat_id)
             logger.warning(f"User {chat_id} tried to create duplicate application: {e}")
             
         except Exception as e:
             # Обработка других ошибок
-            bot.send_message(chat_id, "❌ Произошла ошибка при сохранении заявки. Попробуйте позже.", reply_markup=get_main_menu())
+            bot.send_message(chat_id, "❌ Произошла ошибка при сохранении заявки. Попробуйте позже.", reply_markup=get_appropriate_menu(chat_id))
             clear_user_data(chat_id)
             log_error(logger, e, f"Error saving application for user {chat_id}")
 
@@ -362,7 +364,7 @@ def register(bot, logger):
                     "⏰ Время регистрации истекло. Начните заново.",
                     chat_id, call.message.message_id
                 )
-                bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_main_menu())
+                bot.send_message(chat_id, "⏰ Время регистрации истекло. Начните заново.", reply_markup=get_appropriate_menu(chat_id))
                 return
             
             # Определяем следующий шаг на основе текущего этапа
@@ -425,3 +427,7 @@ def register_handlers(bot):
     """Регистрация обработчиков регистрации"""
     logger = setup_logger('registration')
     register(bot, logger)
+
+
+def is_admin(user_id):
+    return str(user_id) == str(ADMIN_ID)

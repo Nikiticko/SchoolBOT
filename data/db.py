@@ -543,19 +543,30 @@ def reply_to_contact(contact_id, reply_text):
         """, (reply_text, contact_id))
         conn.commit()
 
+def update_contact_reply(contact_id, reply_text):
+    """Обновляет ответ на обращение (аналогично reply_to_contact, но с другим названием)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE contacts
+            SET admin_reply = ?, status = 'Ответ предоставлен', reply_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (reply_text, contact_id))
+        conn.commit()
+
 def ban_user_by_contact(user_tg_id, reason=None):
     with get_connection() as conn:
         cursor = conn.cursor()
         if reason:
             cursor.execute("""
                 UPDATE contacts 
-                SET banned = 1, ban_reason = ? 
+                SET banned = 1, ban_reason = ?, status = 'Ответ предоставлен', admin_reply = NULL, reply_at = CURRENT_TIMESTAMP
                 WHERE user_tg_id = ?
             """, (reason, user_tg_id))
         else:
             cursor.execute("""
                 UPDATE contacts 
-                SET banned = 1 
+                SET banned = 1, status = 'Ответ предоставлен', admin_reply = NULL, reply_at = CURRENT_TIMESTAMP
                 WHERE user_tg_id = ?
             """, (user_tg_id,))
         conn.commit()
@@ -751,6 +762,13 @@ def migrate_database():
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Проверяем существование колонки review_request_sent в applications
+            cursor.execute("PRAGMA table_info(applications)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'review_request_sent' not in columns:
+                cursor.execute("ALTER TABLE applications ADD COLUMN review_request_sent BOOLEAN DEFAULT 0")
+                print("✅ Добавлена колонка review_request_sent в таблицу applications")
             
             # Проверяем существование индексов
             cursor.execute("PRAGMA index_list(applications)")

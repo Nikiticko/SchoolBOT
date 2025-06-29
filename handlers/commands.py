@@ -1,13 +1,14 @@
 # === handlers/commands.py ===
 from telebot import types
 import utils.menu as menu
-from data.db import get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason, update_application, delete_application_by_tg_id
-from handlers.admin import is_admin
+from data.db import (
+    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason, update_application, delete_application_by_tg_id
+)
 from utils.logger import log_user_action, log_error, setup_logger
 from state.users import user_data
 from config import ADMIN_ID
 from utils.security import check_user_security, validate_user_input, security_manager
-from utils.decorators import error_handler
+from utils.decorators import error_handler, ensure_text_message, ensure_stage
 
 def register_handlers(bot):
     """Регистрация обработчиков команд"""
@@ -20,96 +21,98 @@ def register(bot, logger):
     @error_handler()
     def handle_start(message):
         # Проверка безопасности
-        security_ok, error_msg = check_user_security(message.from_user.id, "start_command")
+        security_ok, error_msg = check_user_security(message.from_user.id, "start")
         if not security_ok:
             bot.send_message(message.chat.id, f"🚫 {error_msg}")
             return
         
-        if is_admin(message.from_user.id):
-            markup = menu.get_admin_menu()
-            welcome = "👋 Добро пожаловать, администратор!\n\nВыберите действие из админ-меню:"
-        else:
-            markup = menu.get_main_menu()
-            welcome = "👋 Добро пожаловать! Я бот для записи на занятия.\n\n📋 Выберите действие:"
-        bot.send_message(
-            message.chat.id,
-            welcome,
-            reply_markup=markup
-        )
-        log_user_action(logger, message.from_user.id, "start_command")
-
-    def _handle_my_lesson_logic(chat_id, show_menu=False):
-        """Общая логика для обработки запроса информации о занятии"""
-        try:
-            # Проверка безопасности
-            security_ok, error_msg = check_user_security(chat_id, "my_lesson")
-            if not security_ok:
-                return f"🚫 {error_msg}", show_menu, None
+        chat_id = message.chat.id
+        user = message.from_user
+        
+        # Проверяем, есть ли уже заявка у пользователя
+        existing_app = get_application_by_tg_id(str(chat_id))
+        
+        if existing_app:
+            # У пользователя уже есть заявка
+            app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = existing_app
             
-            # Проверка отмен
-            if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
-                return "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.", True, None
-
-            # Проверка завершённых уроков
-            if get_finished_count_by_tg_id(str(chat_id)) >= 1:
-                # Найти последнюю завершённую заявку в архиве
-                archive = get_all_archive()
-                for row in archive:
-                    if row[1] == str(chat_id) and row[9] == 'Завершено':
-                        course = row[6]
-                        student_name = row[3]
-                        parent_name = row[2]
-                        lesson_date = format_date_for_display(row[7])
-                        comment = row[13] if len(row) > 13 else None
-                        feedback = comment if comment else "Отзыв отсутствует"
-                        msg = f"✅ Ваш пробный урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} уже прошёл.\n\nОбратная связь: {feedback}"
-                        return msg, True, None
-                return "✅ Ваш пробный урок уже прошёл.", True, None
-
-            app = get_application_by_tg_id(str(chat_id))
-            if not app:
-                return "Вы ещё не регистрировались. Нажмите «📋 Записаться».", True, None
-            
-            course = app[6]
-            date = app[7]
-            link = app[8]
-            status = app[9]
-            
-            if status != "Назначено":
-                # Показываем заявку и кнопки
-                parent_name = app[2]
-                student_name = app[3]
-                age = app[4]
-                contact = app[5]
-                course = app[6]
+            if status == "Ожидает":
                 msg = (
-                    f"Ваша заявка на рассмотрении:\n"
-                    f"👤 Родитель: {parent_name}\n"
+                    f"👋 Привет, {parent_name}!\n\n"
+                    f"✅ У вас уже есть активная заявка:\n"
                     f"🧒 Ученик: {student_name}\n"
                     f"🎂 Возраст: {age}\n"
                     f"📘 Курс: {course}\n"
-                    f"📞 Контакт: {contact or 'не указан'}"
+                    f"📊 Статус: Ожидает назначения даты\n\n"
+                    f"⏳ Мы скоро свяжемся с вами для назначения занятия!"
                 )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(
-                    types.InlineKeyboardButton("✏️ Редактировать заявку", callback_data="edit_application"),
-                    types.InlineKeyboardButton("❌ Отменить заявку", callback_data="cancel_application")
+            elif status == "Назначено":
+                formatted_date = lesson_date if isinstance(lesson_date, str) else lesson_date.strftime("%d.%m %H:%M")
+                msg = (
+                    f"👋 Привет, {parent_name}!\n\n"
+                    f"✅ У вас назначено занятие:\n"
+                    f"🧒 Ученик: {student_name}\n"
+                    f"�� Курс: {course}\n"
+                    f"📅 Дата: {formatted_date}\n"
+                    f"🔗 Ссылка: {lesson_link}\n\n"
+                    f"🎯 Готовьтесь к занятию!"
                 )
-                return msg, False, markup
             
-            if date and link:
-                formatted_date = format_date_for_display(date)
-                msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data="cancel_lesson_user"))
-                return msg, False, markup
-            else:
-                msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
+            bot.send_message(chat_id, msg, reply_markup=menu.get_appropriate_menu(user.id))
+        else:
+            # У пользователя нет заявки
+            msg = (
+                f"👋 Привет, {user.first_name}!\n\n"
+                f"🎓 Добро пожаловать в бот для записи на занятия!\n\n"
+                f"📝 Для записи на занятие нажмите кнопку '📝 Записаться на занятие'\n\n"
+                f"ℹ️ Для получения дополнительной информации используйте меню ниже"
+            )
+            bot.send_message(chat_id, msg, reply_markup=menu.get_appropriate_menu(user.id))
+        
+        log_user_action(logger, user.id, "start")
+
+    def _handle_my_lesson_logic(chat_id, show_menu=False):
+        """Логика для получения информации о занятии"""
+        app = get_application_by_tg_id(str(chat_id))
+        
+        if not app:
+            msg = "❌ У вас нет активной заявки на занятие.\n\n📝 Для записи нажмите '📝 Записаться на занятие'"
+            return msg, show_menu, None
+        
+        app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = app
+        
+        if status == "Ожидает":
+            msg = (
+                f"📋 Ваша заявка:\n\n"
+                f"👤 Родитель: {parent_name}\n"
+                f"🧒 Ученик: {student_name}\n"
+                f"🎂 Возраст: {age}\n"
+                f"📘 Курс: {course}\n"
+                f"📊 Статус: Ожидает назначения даты\n\n"
+                f"⏳ Мы скоро свяжемся с вами для назначения занятия!"
+            )
+            return msg, show_menu, None
+        
+        elif status == "Назначено":
+            formatted_date = lesson_date if isinstance(lesson_date, str) else lesson_date.strftime("%d.%m %H:%M")
+            msg = (
+                f"�� Ваше занятие:\n\n"
+                f"👤 Родитель: {parent_name}\n"
+                f"🧒 Ученик: {student_name}\n"
+                f"📘 Курс: {course}\n"
+                f"📅 Дата: {formatted_date}\n"
+                f"🔗 Ссылка: {lesson_link}\n\n"
+                f"🎯 Готовьтесь к занятию!"
+            )
+            
+            if show_menu:
                 return msg, True, None
-                
-        except Exception as e:
-            log_error(logger, e, f"My lesson logic for user {chat_id}")
-            return "❌ Произошла ошибка при получении информации о занятии.", True, None
+            else:
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ Отменить занятие", callback_data="cancel_lesson_user"))
+                return msg, False, markup
+        
+        return "❌ Неизвестный статус заявки", show_menu, None
 
     @bot.message_handler(commands=["my_lesson"])
     @error_handler()
@@ -119,127 +122,92 @@ def register(bot, logger):
         if not security_ok:
             bot.send_message(message.chat.id, f"🚫 {error_msg}")
             return
-        msg, show_menu, markup = _handle_my_lesson_logic(message.chat.id)
+        
+        chat_id = message.chat.id
+        msg, show_menu, markup = _handle_my_lesson_logic(chat_id, show_menu=True)
+        
         if show_menu:
-            bot.send_message(message.chat.id, msg, reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, msg, reply_markup=menu.get_appropriate_menu(message.from_user.id))
         else:
-            bot.send_message(message.chat.id, msg, reply_markup=markup)
+            bot.send_message(chat_id, msg, reply_markup=markup)
+        
         log_user_action(logger, message.from_user.id, "my_lesson_command")
 
     @bot.message_handler(commands=["help"])
     @error_handler()
     def handle_help(message):
         # Проверка безопасности
-        security_ok, error_msg = check_user_security(message.from_user.id, "help_command")
+        security_ok, error_msg = check_user_security(message.from_user.id, "help")
         if not security_ok:
             bot.send_message(message.chat.id, f"🚫 {error_msg}")
             return
+        
         help_text = (
-            "🤖 Доступные команды:\n\n"
-            "/start - Главное меню\n"
-            "/my_lesson - Информация о моем занятии\n"
-            "/help - Эта справка\n\n"
-            "📞 По всем вопросам обращайтесь к администратору."
+            "🤖 <b>Справка по боту:</b>\n\n"
+            "📝 <b>Запись на занятие:</b>\n"
+            "• Нажмите '📝 Записаться на занятие'\n"
+            "• Заполните форму регистрации\n"
+            "• Дождитесь назначения даты\n\n"
+            "📅 <b>Информация о занятии:</b>\n"
+            "• Нажмите '📅 Мое занятие'\n"
+            "• Узнайте дату и ссылку на занятие\n\n"
+            "✏️ <b>Редактирование заявки:</b>\n"
+            "• Нажмите '✏️ Редактировать заявку'\n"
+            "• Измените нужные данные\n\n"
+            "❌ <b>Отмена заявки:</b>\n"
+            "• Нажмите '❌ Отменить заявку'\n"
+            "• Укажите причину отмены\n\n"
+            "🆘 <b>Обращение к админу:</b>\n"
+            "• Нажмите '🆘 Обратиться к админу'\n"
+            "• Напишите ваш вопрос\n\n"
+            "ℹ️ <b>Дополнительная информация:</b>\n"
+            "• 'ℹ️ О преподавателе' - информация о преподавателе\n"
+            "• '💰 Цены и форматы' - стоимость занятий\n"
+            "• '📚 Доступные курсы' - список курсов"
         )
-        bot.send_message(message.chat.id, help_text)
-        log_user_action(logger, message.from_user.id, "help_command")
+        
+        bot.send_message(message.chat.id, help_text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+        log_user_action(logger, message.from_user.id, "help")
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
-    def handle_my_lesson_button(message):
-        # Проверка безопасности
-        security_ok, error_msg = check_user_security(message.from_user.id, "my_lesson_button")
-        if not security_ok:
-            bot.send_message(message.chat.id, f"🚫 {error_msg}")
-            return
-        
+    @error_handler()
+    def handle_my_lesson(message):
         chat_id = message.chat.id
         
-        # Проверка отмен
-        if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
-            bot.send_message(chat_id, "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.", reply_markup=menu.get_main_menu())
-            return
-
-        # Проверка завершённых уроков
-        if get_finished_count_by_tg_id(str(chat_id)) >= 1:
-            # Найти последнюю завершённую заявку в архиве
-            archive = get_all_archive()
-            for row in archive:
-                if row[1] == str(chat_id) and row[9] == 'Завершено':
-                    course = row[6]
-                    student_name = row[3]
-                    parent_name = row[2]
-                    lesson_date = format_date_for_display(row[7])
-                    comment = row[13] if len(row) > 13 else None
-                    feedback = comment if comment else "Отзыв отсутствует"
-                    msg = f"✅ Ваш пробный урок по курсу '{course}' для ученика {student_name} ({parent_name}) на {lesson_date} уже прошёл.\n\nОбратная связь: {feedback}"
-                    bot.send_message(chat_id, msg, reply_markup=menu.get_main_menu())
-                    return
-            # Если не нашли детали в архиве, показываем общее сообщение
-            bot.send_message(chat_id, "✅ Ваш пробный урок уже прошёл.", reply_markup=menu.get_main_menu())
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "my_lesson")
+        if not security_ok:
+            bot.send_message(chat_id, f"🚫 {error_msg}")
             return
         
-        app = get_application_by_tg_id(str(chat_id))
-        if not app:
-            bot.send_message(chat_id, "Вы ещё не регистрировались. Нажмите «📋 Записаться».", reply_markup=menu.get_main_menu())
-            return
+        msg, show_menu, markup = _handle_my_lesson_logic(chat_id, show_menu=True)
         
-        course, date, link, status = app[6], app[7], app[8], app[9]
-        
-        if status != "Назначено":
-            # Показываем заявку и кнопки
-            parent_name = app[2]
-            student_name = app[3]
-            age = app[4]
-            contact = app[5]
-            course = app[6]
-            msg = (
-                f"Ваша заявка на рассмотрении:\n"
-                f"👤 Родитель: {parent_name}\n"
-                f"🧒 Ученик: {student_name}\n"
-                f"🎂 Возраст: {age}\n"
-                f"📘 Курс: {course}\n"
-                f"📞 Контакт: {contact or 'не указан'}"
-            )
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton("✏️ Редактировать заявку", callback_data="edit_application"),
-                types.InlineKeyboardButton("❌ Отменить заявку", callback_data="cancel_application")
-            )
-            bot.send_message(chat_id, msg, reply_markup=markup)
-            return
-        
-        # Если урок назначен, показываем детали и кнопку отмены урока
-        if date and link:
-            formatted_date = format_date_for_display(date)
-            msg = f"📅 Дата: {formatted_date}\n📘 Курс: {course}\n🔗 Ссылка: {link}"
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data="cancel_lesson_user"))
-            bot.send_message(chat_id, msg, reply_markup=markup)
-            return
+        if show_menu:
+            bot.send_message(chat_id, msg, reply_markup=menu.get_appropriate_menu(message.from_user.id))
         else:
-            msg = "📝 Ваша заявка принята. Ожидайте назначения урока."
-            bot.send_message(chat_id, msg, reply_markup=menu.get_main_menu())
-            return
+            bot.send_message(chat_id, msg, reply_markup=markup)
+        
+        log_user_action(logger, message.from_user.id, "my_lesson")
 
     @bot.callback_query_handler(func=lambda c: c.data == "edit_application")
     def handle_edit_application(call):
+        chat_id = call.message.chat.id
+        
         # Проверка безопасности
         security_ok, error_msg = check_user_security(call.from_user.id, "edit_application")
         if not security_ok:
             bot.answer_callback_query(call.id, f"🚫 {error_msg}")
             return
         
-        chat_id = call.message.chat.id
-        
         # Проверяем, что заявка существует
         app = get_application_by_tg_id(str(chat_id))
         if not app:
-            bot.send_message(chat_id, "❌ Заявка не найдена.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Заявка не найдена.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             return
         
         # Проверяем, что заявка не назначена
         if app[9] == "Назначено":
-            bot.send_message(chat_id, "❌ Нельзя редактировать назначенную заявку.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Нельзя редактировать назначенную заявку.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             return
         
         parent_name = app[2]
@@ -270,6 +238,7 @@ def register(bot, logger):
             "contact": contact,
             "course": course
         }
+        log_user_action(logger, call.from_user.id, "edit_application_started")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("edit_field:"))
     def handle_edit_field(call):
@@ -281,20 +250,23 @@ def register(bot, logger):
         
         chat_id = call.message.chat.id
         field = call.data.split(":")[1]
-        prompts = {
-            "parent_name": "Введите новое имя родителя:",
-            "student_name": "Введите новое имя ученика:",
-            "age": "Введите новый возраст:",
-            "course": "Выберите новый курс:",
-            "contact": "Введите новый номер телефона:"
+        
+        if chat_id not in user_data or not user_data[chat_id].get("edit_app"):
+            bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+            return
+        
+        user_data[chat_id]["editing_field"] = field
+        field_names = {
+            "parent_name": "имя родителя",
+            "student_name": "имя ученика", 
+            "age": "возраст",
+            "contact": "контакт",
+            "course": "курс"
         }
         
-        if field in prompts:
-            msg = bot.send_message(chat_id, prompts[field], reply_markup=menu.get_cancel_button())
-            user_data[chat_id]["editing_field"] = field
-            bot.register_next_step_handler(msg, process_edit_field)
-        else:
-            bot.send_message(chat_id, "❌ Неизвестное поле для редактирования")
+        bot.send_message(chat_id, f"Введите новое {field_names.get(field, field)}:")
+        bot.register_next_step_handler(call.message, process_edit_field)
+        log_user_action(logger, call.from_user.id, f"edit_field_{field}")
 
     def process_edit_field(message):
         # Проверка безопасности
@@ -305,120 +277,117 @@ def register(bot, logger):
         
         chat_id = message.chat.id
         
-        # Проверяем отмену
-        if message.text == "🔙 Отмена":
-            user_data.pop(chat_id, None)
-            bot.send_message(chat_id, "❌ Редактирование отменено", reply_markup=menu.get_main_menu())
+        if chat_id not in user_data or not user_data[chat_id].get("edit_app"):
+            bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             return
         
-        if chat_id not in user_data or "editing_field" not in user_data[chat_id]:
-            bot.send_message(chat_id, "❌ Ошибка: данные редактирования не найдены")
+        field = user_data[chat_id].get("editing_field")
+        new_value = message.text.strip()
+        
+        if not new_value:
+            bot.send_message(chat_id, "❌ Значение не может быть пустым. Попробуйте снова.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             return
         
-        field = user_data[chat_id]["editing_field"]
-        value = message.text.strip()
-        
-        # Валидация в зависимости от поля
-        if field in ["parent_name", "student_name"]:
-            is_valid, error_msg = validate_user_input(value, "name")
-        elif field == "age":
-            is_valid, error_msg = validate_user_input(value, "age")
-        elif field == "contact":
-            is_valid, error_msg = validate_user_input(value, "phone")
-        elif field == "course":
-            is_valid, error_msg = validate_user_input(value, "course")
-        else:
-            is_valid, error_msg = validate_user_input(value, "message")
-        
-        if not is_valid:
-            msg = bot.send_message(chat_id, f"❌ {error_msg}\nПопробуйте еще раз:", reply_markup=menu.get_cancel_button())
-            bot.register_next_step_handler(msg, process_edit_field)
-            return
-        
-        # Сохраняем новое значение
-        user_data[chat_id][field] = value
+        # Обновляем значение
+        user_data[chat_id][field] = new_value
         del user_data[chat_id]["editing_field"]
         
-        # Показываем подтверждение
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton("✅ Подтвердить изменения", callback_data="confirm_edit_application"),
-            types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_edit_application")
+        # Показываем обновленные данные
+        app_data = user_data[chat_id]
+        msg = (
+            f"✅ Обновленные данные:\n"
+            f"👤 Родитель: {app_data['parent_name']}\n"
+            f"🧒 Ученик: {app_data['student_name']}\n"
+            f"🎂 Возраст: {app_data['age']}\n"
+            f"📘 Курс: {app_data['course']}\n"
+            f"📞 Контакт: {app_data.get('contact', 'не указан')}"
         )
         
-        summary = f"Новое значение для поля '{field}': {value}\n\nПодтвердите изменения:"
-        bot.send_message(chat_id, summary, reply_markup=markup)
-
-    @bot.callback_query_handler(func=lambda c: c.data == "confirm_edit_application")
-    def handle_confirm_edit_application(call):
-        chat_id = call.message.chat.id
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton("✅ Сохранить", callback_data="save_edit"),
+            types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_edit")
+        )
         
+        bot.send_message(chat_id, msg, reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda c: c.data == "save_edit")
+    def handle_save_edit(call):
         # Проверка безопасности
-        security_ok, error_msg = check_user_security(call.from_user.id, "confirm_edit_application")
+        security_ok, error_msg = check_user_security(call.from_user.id, "save_edit")
         if not security_ok:
             bot.answer_callback_query(call.id, f"🚫 {error_msg}")
             return
         
-        # Проверяем, что заявка все еще существует
-        app = get_application_by_tg_id(str(chat_id))
-        if not app:
-            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана администратором.", reply_markup=menu.get_main_menu())
-            user_data.pop(chat_id, None)
-            return
+        chat_id = call.message.chat.id
         
-        # Проверяем, что заявка не назначена
-        if app[9] == "Назначено":
-            bot.send_message(chat_id, "❌ Нельзя редактировать назначенную заявку.", reply_markup=menu.get_main_menu())
-            user_data.pop(chat_id, None)
-            return
-        
-        edit_data = user_data.get(chat_id)
-        if not edit_data:
-            bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_main_menu())
+        if chat_id not in user_data or not user_data[chat_id].get("edit_app"):
+            bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             return
         
         try:
-            # Обновляем заявку в БД
+            app_data = user_data[chat_id]
             update_application(
-                edit_data["app_id"], 
-                edit_data["parent_name"], 
-                edit_data["student_name"], 
-                edit_data["age"], 
-                edit_data["contact"], 
-                edit_data["course"]
+                app_data["app_id"],
+                app_data["parent_name"],
+                app_data["student_name"], 
+                app_data["age"],
+                app_data.get("contact", ""),
+                app_data["course"]
             )
-            # Уведомляем пользователя и админа
-            bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=menu.get_main_menu())
-            from handlers.admin import notify_admin_new_application
-            notify_admin_new_application(bot, edit_data)
-            user_data.pop(chat_id, None)
-            log_user_action(logger, call.from_user.id, "edited_application")
+            
+            # Очищаем данные
+            del user_data[chat_id]
+            
+            bot.send_message(chat_id, "✅ Заявка успешно обновлена!", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+            log_user_action(logger, call.from_user.id, "application_updated")
             
         except Exception as e:
-            bot.send_message(chat_id, "❌ Ошибка при обновлении заявки. Попробуйте позже.", reply_markup=menu.get_main_menu())
-            user_data.pop(chat_id, None)
-            log_error(logger, e, f"Error updating application for user {chat_id}")
+            bot.send_message(chat_id, "❌ Ошибка при обновлении заявки. Попробуйте позже.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+            log_error(logger, e, f"Error updating application for user {call.from_user.id}")
 
-    @bot.callback_query_handler(func=lambda c: c.data == "cancel_edit_application")
-    def handle_cancel_edit_application(call):
+    @bot.callback_query_handler(func=lambda c: c.data == "cancel_edit")
+    def handle_cancel_edit(call):
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "cancel_edit")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
+            return
+        
         chat_id = call.message.chat.id
-        user_data.pop(chat_id, None)
-        bot.send_message(chat_id, "Редактирование отменено.", reply_markup=menu.get_main_menu())
+        
+        # Очищаем данные
+        if chat_id in user_data:
+            del user_data[chat_id]
+        
+        bot.send_message(chat_id, "Редактирование отменено.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+        log_user_action(logger, call.from_user.id, "edit_cancelled")
 
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_application")
     def handle_cancel_application(call):
         chat_id = call.message.chat.id
-        # Запрашиваем причину отмены
+        
+        # Проверяем, что заявка существует
+        app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.send_message(chat_id, "❌ Заявка не найдена.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+            return
+        
+        # Проверяем, что заявка не назначена
+        if app[9] == "Назначено":
+            bot.send_message(chat_id, "❌ Нельзя отменить назначенную заявку.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+            return
+        
         msg = bot.send_message(chat_id, "Пожалуйста, укажите причину отмены заявки:", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = user_data.get(chat_id, {})
-        user_data[chat_id]["cancel_stage"] = True
+        user_data[chat_id]["cancel_app_stage"] = True
         bot.register_next_step_handler(msg, process_cancel_reason)
 
     def process_cancel_reason(message):
         chat_id = message.chat.id
         # Проверяем, что это сообщение, а не callback
         if hasattr(message, 'text') and message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             user_data.pop(chat_id, None)
             return
         reason = getattr(message, 'text', '').strip()
@@ -442,13 +411,13 @@ def register(bot, logger):
         # Проверяем, что заявка все еще существует
         app = get_application_by_tg_id(str(chat_id))
         if not app:
-            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             user_data.pop(chat_id, None)
             return
         
         # Проверяем, что заявка не назначена
         if app[9] == "Назначено":
-            bot.send_message(chat_id, "❌ Нельзя отменить назначенную заявку. Обратитесь к администратору.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Нельзя отменить назначенную заявку. Обратитесь к администратору.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             user_data.pop(chat_id, None)
             return
         
@@ -459,7 +428,7 @@ def register(bot, logger):
             archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Заявка отменена")
             # Удаляем заявку из БД
             delete_application_by_tg_id(chat_id)
-            bot.send_message(chat_id, "✅ Ваша заявка отменена.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "✅ Ваша заявка отменена.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             
             # Подробное уведомление админу
             parent_name = app[2] if app else '-'
@@ -477,7 +446,7 @@ def register(bot, logger):
             log_user_action(logger, call.from_user.id, "cancelled_application")
             
         except Exception as e:
-            bot.send_message(chat_id, "❌ Ошибка при отмене заявки. Попробуйте позже.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Ошибка при отмене заявки. Попробуйте позже.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             user_data.pop(chat_id, None)
             log_error(logger, e, f"Error cancelling application for user {chat_id}")
 
@@ -485,7 +454,7 @@ def register(bot, logger):
     def handle_cancel_cancel_application(call):
         chat_id = call.message.chat.id
         user_data.pop(chat_id, None)  # Очищаем состояние
-        bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_main_menu())
+        bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("course_info:"))
     def show_course_info(call):
@@ -498,10 +467,10 @@ def register(bot, logger):
                 name = course[1]
                 description = course[2]
                 msg = f"📘 *{name}*\n\n📝 {description}"
-                bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=menu.get_main_menu(call.message.chat.id))
+                bot.send_message(call.message.chat.id, msg, parse_mode="Markdown", reply_markup=menu.get_appropriate_menu(call.from_user.id))
                 log_user_action(logger, call.from_user.id, "course_info_viewed", f"course: {name}")
             else:
-                bot.send_message(call.message.chat.id, "⚠️ Курс не найден.", reply_markup=menu.get_main_menu(call.message.chat.id))
+                bot.send_message(call.message.chat.id, "⚠️ Курс не найден.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
                 log_user_action(logger, call.from_user.id, "course_not_found", f"course_id: {course_id}")
         except Exception as e:
             log_error(logger, e, f"Course info for user {call.from_user.id}")
@@ -509,6 +478,7 @@ def register(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data == "cancel_lesson_user")
     def handle_cancel_lesson_user(call):
         chat_id = call.message.chat.id
+        
         msg = bot.send_message(chat_id, "Пожалуйста, укажите причину отмены урока:", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = user_data.get(chat_id, {})
         user_data[chat_id]["cancel_lesson_stage"] = True
@@ -517,7 +487,7 @@ def register(bot, logger):
     def process_cancel_lesson_reason(message):
         chat_id = message.chat.id
         if hasattr(message, 'text') and message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             user_data.pop(chat_id, None)
             return
         reason = getattr(message, 'text', '').strip()
@@ -541,13 +511,13 @@ def register(bot, logger):
         # Проверяем, что заявка все еще существует
         app = get_application_by_tg_id(str(chat_id))
         if not app:
-            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Заявка не найдена или уже обработана.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             user_data.pop(chat_id, None)
             return
         
         # Проверяем, что заявка назначена
         if app[9] != "Назначено":
-            bot.send_message(chat_id, "❌ Нельзя отменить неназначенный урок.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Нельзя отменить неназначенный урок.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             user_data.pop(chat_id, None)
             return
         
@@ -558,7 +528,7 @@ def register(bot, logger):
             archive_application(app[0], cancelled_by="user", comment=reason, archived_status="Урок отменён")
             # Удаляем заявку из БД
             delete_application_by_tg_id(chat_id)
-            bot.send_message(chat_id, "✅ Ваш урок отменён.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "✅ Ваш урок отменён.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             
             # Уведомление админу
             parent_name = app[2] if app else '-'
@@ -576,7 +546,7 @@ def register(bot, logger):
             log_user_action(logger, call.from_user.id, "cancelled_lesson")
             
         except Exception as e:
-            bot.send_message(chat_id, "❌ Ошибка при отмене урока. Попробуйте позже.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "❌ Ошибка при отмене урока. Попробуйте позже.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             user_data.pop(chat_id, None)
             log_error(logger, e, f"Error cancelling lesson for user {chat_id}")
 
@@ -584,7 +554,7 @@ def register(bot, logger):
     def handle_cancel_cancel_lesson_user(call):
         chat_id = call.message.chat.id
         user_data.pop(chat_id, None)  # Очищаем состояние
-        bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_main_menu())
+        bot.send_message(chat_id, "Отмена отмены урока.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
 
     @bot.message_handler(func=lambda m: m.text == "🆘 Обратиться к админу")
     def handle_contact_admin(message):
@@ -597,13 +567,13 @@ def register(bot, logger):
             msg = "🚫 Вы заблокированы и не можете отправлять обращения."
             if reason:
                 msg += f"\nПричина: {reason}"
-            bot.send_message(chat_id, msg, reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, msg, reply_markup=menu.get_appropriate_menu(message.from_user.id))
             return
         last_time = get_last_contact_time(str(chat_id))
         if last_time:
             last_dt = datetime.datetime.fromisoformat(last_time)
             if (datetime.datetime.now() - last_dt).total_seconds() < 20*60:
-                bot.send_message(chat_id, "⏳ Вы можете отправлять обращения не чаще, чем раз в 20 минут.", reply_markup=menu.get_main_menu())
+                bot.send_message(chat_id, "⏳ Вы можете отправлять обращения не чаще, чем раз в 20 минут.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
                 return
         bot.send_message(chat_id, "✍️ Опишите ваш вопрос или прикрепите файл (фото, документ, голосовое, видео).\n\nДля отмены нажмите '🔙 Отмена'.", reply_markup=menu.get_cancel_button())
         user_data[chat_id] = {"contact_fsm": True}
@@ -614,7 +584,7 @@ def register(bot, logger):
         chat_id = message.chat.id
         user = message.from_user
         if hasattr(message, 'text') and message.text == "🔙 Отмена":
-            bot.send_message(chat_id, "Обращение отменено.", reply_markup=menu.get_main_menu())
+            bot.send_message(chat_id, "Обращение отменено.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             user_data.pop(chat_id, None)
             return
         # Определяем контакт
@@ -643,7 +613,7 @@ def register(bot, logger):
         else:
             msg_text = message.text or "(без текста)"
         contact_id = add_contact(str(chat_id), contact, msg_text)
-        bot.send_message(chat_id, "✅ Ваше обращение отправлено админу. Ожидайте ответа.", reply_markup=menu.get_main_menu())
+        bot.send_message(chat_id, "✅ Ваше обращение отправлено админу. Ожидайте ответа.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
         # Уведомление админу
         admin_msg = f"🆘 Новое обращение от пользователя {contact}\nID: {chat_id}\n\nТекст: {msg_text}\n\nДля ответа используйте меню обращений."
         bot.send_message(ADMIN_ID, admin_msg)
@@ -670,7 +640,7 @@ def register(bot, logger):
             "📚 Использую современные методики и индивидуальный подход к каждому ученику.\n"
             "\nСвязаться со мной: @your_teacher_username"
         )
-        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_main_menu())
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(message.from_user.id))
 
     @bot.message_handler(func=lambda m: m.text == "💰 Цены и форматы")
     def handle_prices_formats(message):
@@ -682,15 +652,18 @@ def register(bot, logger):
             "Занятия проходят онлайн и офлайн.\n"
             "\nДля подробностей — обращайтесь в личные сообщения!"
         )
-        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_main_menu())
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(message.from_user.id))
 
     @bot.message_handler(func=lambda m: m.text == "📚 Доступные курсы")
     def handle_available_courses(message):
         courses = get_active_courses()
         if not courses:
-            bot.send_message(message.chat.id, "⚠️ Сейчас нет активных курсов.", reply_markup=menu.get_main_menu())
+            bot.send_message(message.chat.id, "⚠️ Сейчас нет активных курсов.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             return
         text = "<b>Доступные курсы:</b>\n\n"
         for c in courses:
             text += f"<b>{c[1]}</b>\n{c[2]}\n\n"
-        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_main_menu())
+        bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+
+def is_admin(user_id):
+    return str(user_id) == str(ADMIN_ID)

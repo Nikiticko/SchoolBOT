@@ -1,8 +1,8 @@
 # === utils/common.py ===
 # Централизованные импорты и общие функции
 
-from handlers.admin import is_admin
 from utils.menu import get_main_menu, get_admin_menu
+from config import ADMIN_ID
 
 # Общие функции для валидации
 def validate_text_length(text, max_length=100, field_name="текст"):
@@ -27,4 +27,7 @@ def sanitize_text(text):
     import re
     text = re.sub(r'<[^>]+>', '', text)  # Убираем HTML теги
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-    return text.strip() 
+    return text.strip()
+
+def is_admin(user_id):
+    return str(user_id) == str(ADMIN_ID) 

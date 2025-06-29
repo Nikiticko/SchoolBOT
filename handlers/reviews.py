@@ -5,7 +5,7 @@ from data.db import (
     add_review, get_reviews_for_publication_with_deleted, get_all_reviews, 
     get_review_stats, has_user_reviewed_application
 )
-from utils.menu import get_main_menu
+from utils.menu import get_main_menu, get_appropriate_menu
 from utils.logger import log_error, log_user_action
 from utils.decorators import error_handler, ensure_text_message, ensure_stage
 
@@ -57,7 +57,7 @@ def register(bot, logger):
             
             # Проверяем, не оставил ли уже отзыв
             if has_user_reviewed_application(application_id, user_tg_id):
-                bot.send_message(call.message.chat.id, "Вы уже оставили отзыв на этот урок.", reply_markup=get_main_menu())
+                bot.send_message(call.message.chat.id, "Вы уже оставили отзыв на этот урок.", reply_markup=get_appropriate_menu(call.from_user.id))
                 return
             
             # Сохраняем состояние
@@ -95,7 +95,7 @@ def register(bot, logger):
             user_tg_id = str(call.message.chat.id)
             
             if user_tg_id not in review_states:
-                bot.send_message(call.message.chat.id, "Сессия отзыва истекла. Попробуйте снова.", reply_markup=get_main_menu())
+                bot.send_message(call.message.chat.id, "Сессия отзыва истекла. Попробуйте снова.", reply_markup=get_appropriate_menu(call.from_user.id))
                 return
             
             review_states[user_tg_id]["rating"] = rating
@@ -126,7 +126,7 @@ def register(bot, logger):
             user_tg_id = str(call.message.chat.id)
             
             if user_tg_id not in review_states:
-                bot.send_message(call.message.chat.id, "Сессия отзыва истекла. Попробуйте снова.", reply_markup=get_main_menu())
+                bot.send_message(call.message.chat.id, "Сессия отзыва истекла. Попробуйте снова.", reply_markup=get_appropriate_menu(call.from_user.id))
                 return
             
             # Устанавливаем пустой текст отзыва
@@ -196,7 +196,7 @@ def register(bot, logger):
             user_tg_id = str(call.message.chat.id)
             
             if user_tg_id not in review_states:
-                bot.send_message(call.message.chat.id, "Сессия отзыва истекла. Попробуйте снова.", reply_markup=get_main_menu())
+                bot.send_message(call.message.chat.id, "Сессия отзыва истекла. Попробуйте снова.", reply_markup=get_appropriate_menu(call.from_user.id))
                 return
             
             is_anonymous = (anonymity == "anonymous")
@@ -211,7 +211,7 @@ def register(bot, logger):
                 is_anonymous=is_anonymous
             )
             if not review_id:
-                bot.send_message(call.message.chat.id, "❌ Не удалось сохранить отзыв. Попробуйте позже.", reply_markup=get_main_menu())
+                bot.send_message(call.message.chat.id, "❌ Не удалось сохранить отзыв. Попробуйте позже.", reply_markup=get_appropriate_menu(call.from_user.id))
                 logger.error(f"Failed to add review for user {user_tg_id}, application {review_data['application_id']}")
                 return
             
@@ -225,7 +225,7 @@ def register(bot, logger):
                 "Ваше мнение очень важно для нас! 🙏"
             )
             
-            bot.send_message(call.message.chat.id, msg, reply_markup=get_main_menu())
+            bot.send_message(call.message.chat.id, msg, reply_markup=get_appropriate_menu(call.from_user.id))
             log_user_action(logger, call.from_user.id, "submitted_review", f"rating: {review_data['rating']}, anonymous: {is_anonymous}")
             
         except Exception as e:
@@ -245,7 +245,7 @@ def register(bot, logger):
             else:
                 msg = "Отзыв отменён. Спасибо за участие в уроке! 🙏"
             
-            bot.send_message(call.message.chat.id, msg, reply_markup=get_main_menu())
+            bot.send_message(call.message.chat.id, msg, reply_markup=get_appropriate_menu(call.from_user.id))
             log_user_action(logger, call.from_user.id, "skipped_review" if call.data == "skip_review" else "cancelled_review")
             
         except Exception as e:
@@ -258,7 +258,7 @@ def register(bot, logger):
             reviews = get_reviews_for_publication_with_deleted(limit=5)
             
             if not reviews:
-                bot.send_message(message.chat.id, "Пока нет отзывов. Будьте первым! 😊", reply_markup=get_main_menu())
+                bot.send_message(message.chat.id, "Пока нет отзывов. Будьте первым! 😊", reply_markup=get_appropriate_menu(message.from_user.id))
                 return
             
             msg = "⭐ Отзывы наших учеников:\n\n"
@@ -294,7 +294,7 @@ def register(bot, logger):
             
             msg += "💬 Хотите оставить свой отзыв? Напишите нам!"
             
-            bot.send_message(message.chat.id, msg, reply_markup=get_main_menu())
+            bot.send_message(message.chat.id, msg, reply_markup=get_appropriate_menu(message.from_user.id))
             log_user_action(logger, message.from_user.id, "viewed_reviews")
             
         except Exception as e:
