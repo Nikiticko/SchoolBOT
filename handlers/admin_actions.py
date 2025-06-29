@@ -29,8 +29,58 @@ def is_admin(user_id):
 
 def register_admin_actions(bot, logger):
 
+    @bot.message_handler(func=lambda m: m.text == "📝 Управление уроками" and is_admin(m.from_user.id))
+    def handle_lesson_management(message):
+        try:
+            markup = menu.get_lesson_management_menu()
+            bot.send_message(message.chat.id, "📝 Выберите действие для управления уроками:", reply_markup=markup)
+            logger.info(f"Admin {message.from_user.id} opened lesson management menu")
+        except Exception as e:
+            logger.error(f"Error in handle_lesson_management: {e}")
+
+    @bot.message_handler(func=lambda m: m.text == "🔙 Назад в админ-меню" and is_admin(m.from_user.id))
+    def handle_back_to_main_menu(message):
+        try:
+            markup = menu.get_admin_menu()
+            bot.send_message(message.chat.id, "🔙 Возврат в главное меню администратора", reply_markup=markup)
+            logger.info(f"Admin {message.from_user.id} returned to main menu")
+        except Exception as e:
+            logger.error(f"Error in handle_back_to_main_menu: {e}")
+
+    @bot.message_handler(func=lambda m: m.text == "📅 Посмотреть запланированные уроки" and is_admin(m.from_user.id))
+    def handle_view_scheduled_lessons(message):
+        try:
+            apps = get_assigned_applications()
+            if not apps:
+                bot.send_message(message.chat.id, "✅ Нет запланированных уроков")
+                return
+
+            bot.send_message(message.chat.id, f"📅 Запланированные уроки ({len(apps)}):")
+            
+            for app in apps:
+                app_id, tg_id, parent_name, student_name, age, contact, course, date, link, status, created_at, reminder_sent = app
+                formatted_date = format_date_for_display(date)
+                formatted_created = format_date_for_display(created_at)
+                
+                text = (
+                    f"🆔 Заявка #{app_id}\n"
+                    f"👤 Родитель: {parent_name}\n"
+                    f"🧒 Ученик: {student_name} ({age} лет)\n"
+                    f"📞 Контакт: {contact or 'не указан'}\n"
+                    f"📘 Курс: {course}\n"
+                    f"📅 Дата урока: {formatted_date}\n"
+                    f"🔗 Ссылка: {link or 'не указана'}\n"
+                    f"📝 Создано: {formatted_created}\n"
+                    f"🔔 Напоминание: {'✅ Отправлено' if reminder_sent else '❌ Не отправлено'}"
+                )
+                bot.send_message(message.chat.id, text)
+            
+            logger.info(f"Admin {message.from_user.id} viewed {len(apps)} scheduled lessons")
+        except Exception as e:
+            logger.error(f"Error in handle_view_scheduled_lessons: {e}")
+
     @bot.message_handler(func=lambda m: m.text == "✅ Завершить заявку" and is_admin(m.from_user.id))
-    def handle_finish_request(message):
+    def handle_lesson_finish_menu(message):
         try:
             apps = get_assigned_applications()
             if not apps:
@@ -53,7 +103,82 @@ def register_admin_actions(bot, logger):
                 bot.send_message(message.chat.id, text, reply_markup=markup)
             logger.info(f"Admin {message.from_user.id} viewed applications to finish")
         except Exception as e:
-            logger.error(f"Error in handle_finish_request: {e}")
+            logger.error(f"Error in handle_lesson_finish_menu: {e}")
+
+    @bot.message_handler(func=lambda m: m.text == "❌ Отменить заявку" and is_admin(m.from_user.id))
+    def handle_lesson_cancel_menu(message):
+        try:
+            apps = get_pending_applications()
+            if not apps:
+                bot.send_message(message.chat.id, "✅ Нет активных заявок")
+                return
+
+            for app in apps:
+                app_id, _, parent_name, student_name, _, _, course, _, _, _, _, reminder_sent = app
+                text = (
+                    f"🆔 Заявка #{app_id}\n"
+                    f"👤 Родитель: {parent_name}\n"
+                    f"🧒 Ученик: {student_name}\n"
+                    f"📘 Курс: {course}"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("❌ Отменить", callback_data=f"cancel:{app_id}"))
+                bot.send_message(message.chat.id, text, reply_markup=markup)
+            logger.info(f"Admin {message.from_user.id} viewed applications to cancel")
+        except Exception as e:
+            logger.error(f"Error in handle_lesson_cancel_menu: {e}")
+
+    @bot.message_handler(func=lambda m: m.text == "🚫 Отменить урок" and is_admin(m.from_user.id))
+    def handle_lesson_cancel_lesson_menu(message):
+        try:
+            apps = get_assigned_applications()
+            if not apps:
+                bot.send_message(message.chat.id, "✅ Нет назначенных уроков")
+                return
+
+            for app in apps:
+                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
+                formatted_date = format_date_for_display(date)
+                text = (
+                    f"🆔 Заявка #{app_id}\n"
+                    f"👤 Родитель: {parent_name}\n"
+                    f"🧒 Ученик: {student_name}\n"
+                    f"📘 Курс: {course}\n"
+                    f"📅 Дата: {formatted_date}\n"
+                    f"🔗 Ссылка: {link}"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data=f"cancel_lesson:{app_id}"))
+                bot.send_message(message.chat.id, text, reply_markup=markup)
+            logger.info(f"Admin {message.from_user.id} viewed lessons to cancel")
+        except Exception as e:
+            logger.error(f"Error in handle_lesson_cancel_lesson_menu: {e}")
+
+    @bot.message_handler(func=lambda m: m.text == "🕓 Перенести урок" and is_admin(m.from_user.id))
+    def handle_lesson_reschedule_menu(message):
+        try:
+            apps = get_assigned_applications()
+            if not apps:
+                bot.send_message(message.chat.id, "✅ Нет назначенных уроков")
+                return
+
+            for app in apps:
+                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
+                formatted_date = format_date_for_display(date)
+                text = (
+                    f"🆔 Заявка #{app_id}\n"
+                    f"👤 Родитель: {parent_name}\n"
+                    f"🧒 Ученик: {student_name}\n"
+                    f"📘 Курс: {course}\n"
+                    f"📅 Текущая дата: {formatted_date}\n"
+                    f"🔗 Ссылка: {link}"
+                )
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("🕓 Перенести", callback_data=f"reschedule:{app_id}"))
+                bot.send_message(message.chat.id, text, reply_markup=markup)
+            logger.info(f"Admin {message.from_user.id} viewed applications to reschedule")
+        except Exception as e:
+            logger.error(f"Error in handle_lesson_reschedule_menu: {e}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("finish:"))
     def handle_finish_status(call):
@@ -137,29 +262,6 @@ def register_admin_actions(bot, logger):
         except Exception as e:
             logger.error(f"Error in receive_finish_feedback: {e}")
 
-    @bot.message_handler(func=lambda m: m.text == "❌ Отменить заявку" and is_admin(m.from_user.id))
-    def handle_cancel_request(message):
-        try:
-            apps = get_pending_applications()
-            if not apps:
-                bot.send_message(message.chat.id, "✅ Нет активных заявок")
-                return
-
-            for app in apps:
-                app_id, _, parent_name, student_name, _, _, course, _, _, _, _, reminder_sent = app
-                text = (
-                    f"🆔 Заявка #{app_id}\n"
-                    f"👤 Родитель: {parent_name}\n"
-                    f"🧒 Ученик: {student_name}\n"
-                    f"📘 Курс: {course}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("❌ Отменить", callback_data=f"cancel:{app_id}"))
-                bot.send_message(message.chat.id, text, reply_markup=markup)
-            logger.info(f"Admin {message.from_user.id} viewed applications to cancel")
-        except Exception as e:
-            logger.error(f"Error in handle_cancel_request: {e}")
-
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel:"))
     def handle_cancel_status(call):
         try:
@@ -214,32 +316,6 @@ def register_admin_actions(bot, logger):
             logger.error(f"Error in receive_cancel_reason: {e}")
 
     lesson_cancel_buffer = {}  # Временно храним app_id для отмены урока
-
-    @bot.message_handler(func=lambda m: m.text == "🚫 Отменить урок" and is_admin(m.from_user.id))
-    def handle_cancel_lesson_request(message):
-        try:
-            apps = get_assigned_applications()
-            if not apps:
-                bot.send_message(message.chat.id, "✅ Нет назначенных уроков")
-                return
-
-            for app in apps:
-                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
-                formatted_date = format_date_for_display(date)
-                text = (
-                    f"🆔 Заявка #{app_id}\n"
-                    f"👤 Родитель: {parent_name}\n"
-                    f"🧒 Ученик: {student_name}\n"
-                    f"📘 Курс: {course}\n"
-                    f"📅 Дата: {formatted_date}\n"
-                    f"🔗 Ссылка: {link}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("🚫 Отменить урок", callback_data=f"cancel_lesson:{app_id}"))
-                bot.send_message(message.chat.id, text, reply_markup=markup)
-            logger.info(f"Admin {message.from_user.id} viewed lessons to cancel")
-        except Exception as e:
-            logger.error(f"Error in handle_cancel_lesson_request: {e}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("cancel_lesson:"))
     def handle_cancel_lesson(call):
@@ -301,32 +377,6 @@ def register_admin_actions(bot, logger):
                 bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
         except Exception as e:
             logger.error(f"Error in receive_lesson_cancel_reason: {e}")
-
-    @bot.message_handler(func=lambda m: m.text == "🕓 Перенести урок" and is_admin(m.from_user.id))
-    def handle_reschedule_lesson(message):
-        try:
-            apps = get_assigned_applications()
-            if not apps:
-                bot.send_message(message.chat.id, "✅ Нет назначенных уроков")
-                return
-
-            for app in apps:
-                app_id, tg_id, parent_name, student_name, _, _, course, date, link, _, _, reminder_sent = app
-                formatted_date = format_date_for_display(date)
-                text = (
-                    f"🆔 Заявка #{app_id}\n"
-                    f"👤 Родитель: {parent_name}\n"
-                    f"🧒 Ученик: {student_name}\n"
-                    f"📘 Курс: {course}\n"
-                    f"📅 Текущая дата: {formatted_date}\n"
-                    f"🔗 Ссылка: {link}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("🕓 Перенести", callback_data=f"reschedule:{app_id}"))
-                bot.send_message(message.chat.id, text, reply_markup=markup)
-            logger.info(f"Admin {message.from_user.id} viewed applications to reschedule")
-        except Exception as e:
-            logger.error(f"Error in handle_reschedule_lesson: {e}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("reschedule:"))
     def handle_reschedule_callback(call):
