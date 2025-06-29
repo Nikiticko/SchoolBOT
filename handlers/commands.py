@@ -7,6 +7,7 @@ from utils.logger import log_user_action, log_error, setup_logger
 from state.users import user_data
 from config import ADMIN_ID
 from utils.security import check_user_security, validate_user_input, security_manager
+from utils.decorators import error_handler
 
 def register_handlers(bot):
     """Регистрация обработчиков команд"""
@@ -16,28 +17,26 @@ def register_handlers(bot):
 def register(bot, logger):  
 
     @bot.message_handler(commands=["start"])
+    @error_handler()
     def handle_start(message):
-        try:
-            # Проверка безопасности
-            security_ok, error_msg = check_user_security(message.from_user.id, "start_command")
-            if not security_ok:
-                bot.send_message(message.chat.id, f"🚫 {error_msg}")
-                return
-            
-            if is_admin(message.from_user.id):
-                markup = menu.get_admin_menu()
-                welcome = "👋 Добро пожаловать, администратор!\n\nВыберите действие из админ-меню:"
-            else:
-                markup = menu.get_main_menu()
-                welcome = "👋 Добро пожаловать! Я бот для записи на занятия.\n\n📋 Выберите действие:"
-            bot.send_message(
-                message.chat.id,
-                welcome,
-                reply_markup=markup
-            )
-            log_user_action(logger, message.from_user.id, "start_command")
-        except Exception as e:
-            log_error(logger, e, f"Start command for user {message.from_user.id}")
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "start_command")
+        if not security_ok:
+            bot.send_message(message.chat.id, f"🚫 {error_msg}")
+            return
+        
+        if is_admin(message.from_user.id):
+            markup = menu.get_admin_menu()
+            welcome = "👋 Добро пожаловать, администратор!\n\nВыберите действие из админ-меню:"
+        else:
+            markup = menu.get_main_menu()
+            welcome = "👋 Добро пожаловать! Я бот для записи на занятия.\n\n📋 Выберите действие:"
+        bot.send_message(
+            message.chat.id,
+            welcome,
+            reply_markup=markup
+        )
+        log_user_action(logger, message.from_user.id, "start_command")
 
     def _handle_my_lesson_logic(chat_id, show_menu=False):
         """Общая логика для обработки запроса информации о занятии"""
@@ -113,43 +112,37 @@ def register(bot, logger):
             return "❌ Произошла ошибка при получении информации о занятии.", True, None
 
     @bot.message_handler(commands=["my_lesson"])
+    @error_handler()
     def handle_my_lesson_command(message):
-        try:
-            # Проверка безопасности
-            security_ok, error_msg = check_user_security(message.from_user.id, "my_lesson_command")
-            if not security_ok:
-                bot.send_message(message.chat.id, f"🚫 {error_msg}")
-                return
-            
-            msg, show_menu, markup = _handle_my_lesson_logic(message.chat.id)
-            if show_menu:
-                bot.send_message(message.chat.id, msg, reply_markup=menu.get_main_menu())
-            else:
-                bot.send_message(message.chat.id, msg, reply_markup=markup)
-            log_user_action(logger, message.from_user.id, "my_lesson_command")
-        except Exception as e:
-            log_error(logger, e, f"My lesson command for user {message.from_user.id}")
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "my_lesson_command")
+        if not security_ok:
+            bot.send_message(message.chat.id, f"🚫 {error_msg}")
+            return
+        msg, show_menu, markup = _handle_my_lesson_logic(message.chat.id)
+        if show_menu:
+            bot.send_message(message.chat.id, msg, reply_markup=menu.get_main_menu())
+        else:
+            bot.send_message(message.chat.id, msg, reply_markup=markup)
+        log_user_action(logger, message.from_user.id, "my_lesson_command")
 
     @bot.message_handler(commands=["help"])
+    @error_handler()
     def handle_help(message):
-        try:
-            # Проверка безопасности
-            security_ok, error_msg = check_user_security(message.from_user.id, "help_command")
-            if not security_ok:
-                bot.send_message(message.chat.id, f"🚫 {error_msg}")
-                return
-            
-            help_text = (
-                "🤖 Доступные команды:\n\n"
-                "/start - Главное меню\n"
-                "/my_lesson - Информация о моем занятии\n"
-                "/help - Эта справка\n\n"
-                "📞 По всем вопросам обращайтесь к администратору."
-            )
-            bot.send_message(message.chat.id, help_text)
-            log_user_action(logger, message.from_user.id, "help_command")
-        except Exception as e:
-            log_error(logger, e, f"Help command for user {message.from_user.id}")
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "help_command")
+        if not security_ok:
+            bot.send_message(message.chat.id, f"🚫 {error_msg}")
+            return
+        help_text = (
+            "🤖 Доступные команды:\n\n"
+            "/start - Главное меню\n"
+            "/my_lesson - Информация о моем занятии\n"
+            "/help - Эта справка\n\n"
+            "📞 По всем вопросам обращайтесь к администратору."
+        )
+        bot.send_message(message.chat.id, help_text)
+        log_user_action(logger, message.from_user.id, "help_command")
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     def handle_my_lesson_button(message):

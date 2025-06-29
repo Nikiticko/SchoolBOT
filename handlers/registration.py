@@ -19,6 +19,7 @@ from data.db import (
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from utils.security import check_user_security, validate_user_input, security_manager
+from utils.decorators import error_handler
 
 
 def handle_existing_registration(bot, chat_id):
@@ -28,86 +29,74 @@ def handle_existing_registration(bot, chat_id):
 
 def register(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "📋 Записаться")
+    @error_handler()
     def handle_signup(message):
-        try:
-            chat_id = message.chat.id
-
-            # Проверка безопасности
-            security_ok, error_msg = check_user_security(message.from_user.id, "signup")
-            if not security_ok:
-                bot.send_message(chat_id, f"🚫 {error_msg}")
+        chat_id = message.chat.id
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(message.from_user.id, "signup")
+        if not security_ok:
+            bot.send_message(chat_id, f"🚫 {error_msg}")
+            return
+        # ИСПРАВЛЕНО: Проверка на существующие активные заявки
+        existing_app = get_application_by_tg_id(str(chat_id))
+        if existing_app:
+            status = existing_app[9]  # status
+            if status == "Ожидает":
+                bot.send_message(chat_id, "⚠️ У вас уже есть активная заявка на рассмотрении. Дождитесь ответа администратора или отмените текущую заявку.")
                 return
-
-            # ИСПРАВЛЕНО: Проверка на существующие активные заявки
-            existing_app = get_application_by_tg_id(str(chat_id))
-            if existing_app:
-                status = existing_app[9]  # status
-                if status == "Ожидает":
-                    bot.send_message(chat_id, "⚠️ У вас уже есть активная заявка на рассмотрении. Дождитесь ответа администратора или отмените текущую заявку.")
-                    return
-                elif status == "Назначено":
-                    course, date, link = existing_app[6], existing_app[7], existing_app[8]
-                    formatted_date = format_date_for_display(date)
-                    bot.send_message(chat_id, f"✅ У вас уже назначен урок:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
-                    return
-
-            # 1. Проверка отмен
-            if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
-                bot.send_message(chat_id, "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.")
+            elif status == "Назначено":
+                course, date, link = existing_app[6], existing_app[7], existing_app[8]
+                formatted_date = format_date_for_display(date)
+                bot.send_message(chat_id, f"✅ У вас уже назначен урок:\n📅 {formatted_date}\n📘 {course}\n🔗 {link}", reply_markup=get_main_menu())
                 return
-
-            # 2. Проверка завершённых уроков
-            if get_finished_count_by_tg_id(str(chat_id)) >= 1:
-                bot.send_message(chat_id, "✅ Вы уже проходили пробный урок. Для дальнейших занятий свяжитесь с администратором.")
+        # 1. Проверка отмен
+        if get_cancelled_count_by_tg_id(str(chat_id)) >= 2:
+            bot.send_message(chat_id, "🚫 У вас 2 или более отменённых заявок или уроков. Запись невозможна. Свяжитесь с администратором.")
+            return
+        # 2. Проверка завершённых уроков
+        if get_finished_count_by_tg_id(str(chat_id)) >= 1:
+            bot.send_message(chat_id, "✅ Вы уже проходили пробный урок. Для дальнейших занятий свяжитесь с администратором.")
+            return
+        # 3. Архивный лимит
+        if get_archive_count_by_tg_id(str(chat_id)) >= 2:
+            bot.send_message(chat_id, "🚫 Вы уже записывались несколько раз. Пожалуйста, свяжитесь с администратором.")
+            return
+        # 4. Наличие курсов
+        if not get_active_courses():
+            bot.send_message(chat_id, "⚠️ Сейчас запись недоступна. Курсы временно неактивны.")
+            return
+        # 5. ИСПРАВЛЕНО: Проверка незавершенной регистрации
+        if is_registration_in_progress(chat_id):
+            # Проверяем таймаут регистрации
+            start_time = get_registration_start_time(chat_id)
+            if time.time() - start_time > 30 * 60:  # 30 минут
+                # Очищаем просроченную регистрацию
+                clear_user_data(chat_id)
+                bot.send_message(chat_id, "⏰ Предыдущая регистрация истекла. Начинаем заново.")
+            else:
+                # Показываем возможность продолжить регистрацию
+                current_stage = get_registration_stage(chat_id)
+                stage_messages = {
+                    "parent_name": "Введите ваше имя (имя родителя):",
+                    "student_name": "Введите имя ученика:",
+                    "age": "Введите возраст ученика:",
+                    "contact": "Введите контактный номер:",
+                    "course": "Выберите курс:"
+                }
+                markup = types.InlineKeyboardMarkup(row_width=2)
+                markup.add(
+                    types.InlineKeyboardButton("🔄 Продолжить", callback_data="continue_registration"),
+                    types.InlineKeyboardButton("🔄 Начать заново", callback_data="restart_registration")
+                )
+                current_message = stage_messages.get(current_stage, "Продолжите регистрацию:")
+                msg = bot.send_message(chat_id, f"⏳ У вас есть незавершенная регистрация.\n\n{current_message}", reply_markup=markup)
+                bot.register_next_step_handler(msg, process_parent_name)
                 return
-
-            # 3. Архивный лимит
-            if get_archive_count_by_tg_id(str(chat_id)) >= 2:
-                bot.send_message(chat_id, "🚫 Вы уже записывались несколько раз. Пожалуйста, свяжитесь с администратором.")
-                return
-
-            # 4. Наличие курсов
-            if not get_active_courses():
-                bot.send_message(chat_id, "⚠️ Сейчас запись недоступна. Курсы временно неактивны.")
-                return
-
-            # 5. ИСПРАВЛЕНО: Проверка незавершенной регистрации
-            if is_registration_in_progress(chat_id):
-                # Проверяем таймаут регистрации
-                start_time = get_registration_start_time(chat_id)
-                if time.time() - start_time > 30 * 60:  # 30 минут
-                    # Очищаем просроченную регистрацию
-                    clear_user_data(chat_id)
-                    bot.send_message(chat_id, "⏰ Предыдущая регистрация истекла. Начинаем заново.")
-                else:
-                    # Показываем возможность продолжить регистрацию
-                    current_stage = get_registration_stage(chat_id)
-                    stage_messages = {
-                        "parent_name": "Введите ваше имя (имя родителя):",
-                        "student_name": "Введите имя ученика:",
-                        "age": "Введите возраст ученика:",
-                        "contact": "Введите контактный номер:",
-                        "course": "Выберите курс:"
-                    }
-                    
-                    markup = types.InlineKeyboardMarkup(row_width=2)
-                    markup.add(
-                        types.InlineKeyboardButton("🔄 Продолжить", callback_data="continue_registration"),
-                        types.InlineKeyboardButton("🔄 Начать заново", callback_data="restart_registration")
-                    )
-                    
-                    current_message = stage_messages.get(current_stage, "Продолжите регистрацию:")
-                    msg = bot.send_message(chat_id, f"⏳ У вас есть незавершенная регистрация.\n\n{current_message}", reply_markup=markup)
-                    bot.register_next_step_handler(msg, process_parent_name)
-                    return
-
-            # Начало новой регистрации
-            start_registration(chat_id)
-            msg = bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
-            bot.register_next_step_handler(msg, process_parent_name)
-            logger.info(f"User {chat_id} started registration")
-        except Exception as e:
-            log_error(logger, e, f"Error in handle_signup for user {message.chat.id}")
+        # Начало новой регистрации
+        start_registration(chat_id)
+        msg = bot.send_message(chat_id, "Введите ваше имя (имя родителя):", reply_markup=get_cancel_button())
+        bot.register_next_step_handler(msg, process_parent_name)
+        logger.info(f"User {chat_id} started registration")
 
     def process_parent_name(message):
         chat_id = message.chat.id

@@ -37,6 +37,7 @@ from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_er
 from utils.security import log_security_event
 from utils.menu import create_admin_menu, create_confirm_menu
 from services.monitor import get_review_monitor
+from utils.decorators import error_handler
 
 logger = setup_logger('admin')
 
@@ -160,38 +161,34 @@ def register(bot, logger):
             logger.info(f"Admin {call.from_user.id} cancelled clear")
 
     @bot.message_handler(func=lambda m: m.text == "📋 Список заявок" and is_admin(m.from_user.id))
+    @error_handler()
     def handle_pending_applications(message):
-        try:
-            applications = get_pending_applications()
-            if not applications:
-                bot.send_message(message.chat.id, "✅ Нет заявок без назначенной даты")
-                return
-
-            for app in applications:
-                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = app
-                formatted_created = format_date_for_display(created_at)
-                # Статус заявки
-                if status == "Назначено":
-                    status_str = "Назначено"
-                else:
-                    status_str = "Ожидает"
-                text = (
-                    f"🆔 Заявка #{app_id}\n"
-                    f"👤 Родитель: {parent_name}\n"
-                    f"🧒 Ученик: {student_name}\n"
-                    f"📞 Контакт: {contact or 'не указан'}\n"
-                    f"🎂 Возраст: {age}\n"
-                    f"📘 Курс: {course}\n"
-                    f"Статус: {status_str}\n"
-                    f"🕒 Создано: {formatted_created}"
-                )
-                markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("🕒 Назначить", callback_data=f"assign:{app_id}"))
-                bot.send_message(message.chat.id, text, reply_markup=markup)
-            logger.info(f"Admin {message.from_user.id} viewed pending applications")
-        except Exception as e:
-            bot.send_message(message.chat.id, f"❌ Ошибка при получении заявок: {str(e)}")
-            logger.error(f"Error in handle_pending_applications: {e}")
+        applications = get_pending_applications()
+        if not applications:
+            bot.send_message(message.chat.id, "✅ Нет заявок без назначенной даты")
+            return
+        for app in applications:
+            app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = app
+            formatted_created = format_date_for_display(created_at)
+            # Статус заявки
+            if status == "Назначено":
+                status_str = "Назначено"
+            else:
+                status_str = "Ожидает"
+            text = (
+                f"🆔 Заявка #{app_id}\n"
+                f"👤 Родитель: {parent_name}\n"
+                f"🧒 Ученик: {student_name}\n"
+                f"📞 Контакт: {contact or 'не указан'}\n"
+                f"🎂 Возраст: {age}\n"
+                f"📘 Курс: {course}\n"
+                f"Статус: {status_str}\n"
+                f"🕒 Создано: {formatted_created}"
+            )
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("🕒 Назначить", callback_data=f"assign:{app_id}"))
+            bot.send_message(message.chat.id, text, reply_markup=markup)
+        logger.info(f"Admin {message.from_user.id} viewed pending applications")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("assign:"))
     def handle_assign_callback(call):

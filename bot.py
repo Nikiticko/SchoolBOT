@@ -9,7 +9,7 @@
 from telebot import TeleBot
 from config import API_TOKEN, CHECK_INTERVAL
 from data.db import init_db, migrate_database
-from services.monitor import start_monitoring, init_review_monitor, stop_review_monitor, init_lesson_reminder_monitor, stop_lesson_reminder_monitor
+from services.monitor import init_review_monitor, stop_review_monitor, init_lesson_reminder_monitor, stop_lesson_reminder_monitor
 from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_error
 from utils.exceptions import (
     BotException, DatabaseException, ConfigurationException, 
@@ -64,12 +64,12 @@ except Exception as e:
     raise
 
 # Запуск мониторинга заявок
-try:
-    start_monitoring(bot, logger)
-    logger.info(f"✅ Monitoring started with interval {CHECK_INTERVAL}s")
-except Exception as e:
-    error_msg = handle_exception(e, logger, "Monitoring startup")
-    logger.error(f"❌ {error_msg}")
+# try:
+#     start_monitoring(bot, logger)
+#     logger.info(f"✅ Monitoring started with interval {CHECK_INTERVAL}s")
+# except Exception as e:
+#     error_msg = handle_exception(e, logger, "Monitoring startup")
+#     logger.error(f"❌ {error_msg}")
 
 # Инициализация монитора запросов на оценку
 try:
