@@ -70,7 +70,10 @@ class ReviewRequestMonitor:
                 try:
                     self._send_review_request(app_id, tg_id, course)
                     # Отмечаем, что запрос отправлен
-                    mark_review_request_sent(app_id)
+                    try:
+                        mark_review_request_sent(app_id)
+                    except Exception as e:
+                        logger.error(f"Failed to mark review request sent for application {app_id}: {e}")
                     logger.info(f"Review request sent for application {app_id}")
                     
                 except Exception as e:
@@ -131,8 +134,10 @@ class ReviewRequestMonitor:
             self._send_review_request(app_id, tg_id, course)
             
             # Отмечаем, что запрос отправлен
-            mark_review_request_sent(app_id)
-            
+            try:
+                mark_review_request_sent(app_id)
+            except Exception as e:
+                logger.error(f"Failed to mark review request sent for application {app_id}: {e}")
             logger.info(f"Immediate review request sent for application {app_id}")
             return True
             
@@ -214,31 +219,31 @@ class LessonReminderMonitor:
                 time.sleep(60)
 
     def _check_and_send_reminders(self):
-        lessons = get_upcoming_lessons(self.reminder_minutes)
-        if not lessons:
-            return
-        logger.info(f"Found {len(lessons)} lessons for reminders")
-        for app in lessons:
-            app_id = app[0]
-            tg_id = app[1]
-            parent_name = app[2]
-            student_name = app[3]
-            course = app[6]
-            lesson_date = app[7]
-            lesson_link = app[8]
-            try:
-                formatted_date = format_date_for_display(lesson_date)
-                msg = (
-                    f"⏰ Напоминание! Ваш урок начнётся через 30 минут или меньше.\n"
-                    f"📅 Дата: {formatted_date}\n"
-                    f"📘 Курс: {course}\n"
-                    f"🔗 Ссылка: {lesson_link}"
-                )
-                self.bot.send_message(tg_id, msg)
-                mark_reminder_sent(app_id)
-                logger.info(f"[REMINDER] Sent to user {tg_id} for lesson {app_id}")
-            except Exception as e:
-                logger.error(f"[REMINDER] Failed to send to {tg_id}: {e}")
+        try:
+            lessons = get_upcoming_lessons(self.reminder_minutes)
+            if not lessons:
+                return
+            logger.info(f"Found {len(lessons)} lessons for reminders")
+            for lesson in lessons:
+                app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = lesson
+                try:
+                    formatted_date = format_date_for_display(lesson_date)
+                    msg = (
+                        f"⏰ Напоминание! Ваш урок начнётся через 30 минут или меньше.\n"
+                        f"📅 Дата: {formatted_date}\n"
+                        f"📘 Курс: {course}\n"
+                        f"🔗 Ссылка: {lesson_link}"
+                    )
+                    self.bot.send_message(tg_id, msg)
+                    try:
+                        mark_reminder_sent(app_id)
+                    except Exception as e:
+                        logger.error(f"Failed to mark reminder sent for application {app_id}: {e}")
+                    logger.info(f"[REMINDER] Sent to user {tg_id} for lesson {app_id}")
+                except Exception as e:
+                    logger.error(f"[REMINDER] Failed to send to {tg_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error checking reminders: {e}")
 
 # Глобальный экземпляр монитора напоминаний
 lesson_reminder_monitor = None

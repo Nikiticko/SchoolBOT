@@ -203,13 +203,17 @@ def register(bot, logger):
             review_data = review_states[user_tg_id]
             
             # Сохраняем отзыв
-            add_review(
+            review_id = add_review(
                 application_id=review_data["application_id"],
                 user_tg_id=user_tg_id,
                 rating=review_data["rating"],
                 feedback=review_data["feedback"],
                 is_anonymous=is_anonymous
             )
+            if not review_id:
+                bot.send_message(call.message.chat.id, "❌ Не удалось сохранить отзыв. Попробуйте позже.", reply_markup=get_main_menu())
+                logger.error(f"Failed to add review for user {user_tg_id}, application {review_data['application_id']}")
+                return
             
             # Очищаем состояние
             review_states.pop(user_tg_id, None)

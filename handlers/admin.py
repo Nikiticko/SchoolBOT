@@ -138,9 +138,13 @@ def register(bot, logger):
             return
 
         if call.data == "confirm_clear_archive":
-            clear_archive()
-            bot.send_message(call.message.chat.id, "🧹 Архив успешно очищен.")
-            logger.info(f"Admin {call.from_user.id} cleared archive")
+            try:
+                clear_archive()
+                bot.send_message(call.message.chat.id, "🧹 Архив успешно очищен.")
+                logger.info(f"Admin {call.from_user.id} cleared archive")
+            except Exception as e:
+                bot.send_message(call.message.chat.id, "❌ Ошибка при очистке архива. Попробуйте позже.")
+                logger.error(f"Error clearing archive: {e}")
         else:
             bot.send_message(call.message.chat.id, "❌ Очистка архива отменена.")
             logger.info(f"Admin {call.from_user.id} cancelled archive clear")
@@ -153,9 +157,13 @@ def register(bot, logger):
             return
 
         if call.data == "confirm_clear":
-            clear_applications()
-            bot.send_message(chat_id, "✅ Все заявки успешно удалены.")
-            logger.info(f"Admin {call.from_user.id} cleared all applications")
+            try:
+                clear_applications()
+                bot.send_message(chat_id, "✅ Все заявки успешно удалены.")
+                logger.info(f"Admin {call.from_user.id} cleared all applications")
+            except Exception as e:
+                bot.send_message(chat_id, "❌ Ошибка при очистке заявок. Попробуйте позже.")
+                logger.error(f"Error clearing applications: {e}")
         else:
             bot.send_message(chat_id, "❌ Очистка отменена.")
             logger.info(f"Admin {call.from_user.id} cancelled clear")

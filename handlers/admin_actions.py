@@ -127,7 +127,8 @@ def register_admin_actions(bot, logger):
 
                 logger.info(f"Admin {user_id} finished application {app_id} with feedback: {comment}")
             else:
-                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+                bot.send_message(chat_id, "❌ Не удалось архивировать заявку. Попробуйте позже.")
+                logger.error(f"Failed to archive application {app_id} (finish) for user {user_id}")
         except Exception as e:
             logger.error(f"Error in receive_finish_feedback: {e}")
 
@@ -198,20 +199,12 @@ def register_admin_actions(bot, logger):
             success = archive_application(app_id, cancelled_by="admin", comment=reason, archived_status="Заявка отменена")
 
             if success:
-                bot.edit_message_text("❌ Заявка отменена и архивирована.", chat_id, msg_id)
-                bot.send_message(chat_id, "✅ Причина отмены заявки сохранена.", reply_markup=menu.get_admin_menu())
-
-                # Отправляем уведомление пользователю
-                tg_id = app[1]
-                try:
-                    bot.send_message(int(tg_id), f"⚠️ Ваша заявка была отменена.\nПричина: {reason}\nВы можете подать новую заявку.")
-                    logger.info(f"Notification sent to user {tg_id} about application cancellation")
-                except Exception as e:
-                    logger.error(f"Failed to notify user {tg_id}: {e}")
-                
+                bot.edit_message_text("✅ Заявка отменена и архивирована.", chat_id, msg_id)
+                bot.send_message(chat_id, "✅ Заявка отменена.", reply_markup=menu.get_admin_menu())
                 logger.info(f"Admin {user_id} cancelled application {app_id} with reason: {reason}")
             else:
-                bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+                bot.send_message(chat_id, "❌ Не удалось архивировать заявку. Попробуйте позже.")
+                logger.error(f"Failed to archive application {app_id} (cancel) for user {user_id}")
         except Exception as e:
             logger.error(f"Error in receive_cancel_reason: {e}")
 

@@ -33,11 +33,14 @@ def register_course_editor(bot, logger):
             if message.text == "🔙 Отмена":
                 handle_cancel_action(bot, message, "курс", logger)
                 return
-                
             desc = message.text.strip()
-            add_course(name, desc)
-            bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=menu.get_admin_menu())
-            logger.info(f"Admin {message.from_user.id} added new course: {name}")
+            try:
+                add_course(name, desc)
+                bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=menu.get_admin_menu())
+                logger.info(f"Admin {message.from_user.id} added new course: {name}")
+            except Exception as e:
+                bot.send_message(message.chat.id, "❌ Не удалось добавить курс. Попробуйте позже.")
+                logger.error(f"Error adding course: {e}")
         except Exception as e:
             logger.error(f"Error in save_new_course: {e}")
 
@@ -98,9 +101,13 @@ def register_course_editor(bot, logger):
     def confirm_delete_course(call):
         try:
             course_id = int(call.data.split(":")[1])
-            delete_course(course_id)
-            bot.edit_message_text("✅ Курс удалён.", call.message.chat.id, call.message.message_id)
-            logger.info(f"Admin {call.from_user.id} deleted course {course_id}")
+            try:
+                delete_course(course_id)
+                bot.edit_message_text("✅ Курс удалён.", call.message.chat.id, call.message.message_id)
+                logger.info(f"Admin {call.from_user.id} deleted course {course_id}")
+            except Exception as e:
+                bot.send_message(call.message.chat.id, "❌ Не удалось удалить курс. Попробуйте позже.")
+                logger.error(f"Error deleting course: {e}")
         except Exception as e:
             logger.error(f"Error in confirm_delete_course: {e}")
 
@@ -143,11 +150,14 @@ def register_course_editor(bot, logger):
             if message.text == "🔙 Отмена":
                 handle_cancel_action(bot, message, "курс", logger)
                 return
-                
             desc = message.text.strip()
-            update_course(course_id, name, desc)
-            bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=menu.get_admin_menu())
-            logger.info(f"Admin {message.from_user.id} updated course {course_id} to: {name}")
+            try:
+                update_course(course_id, name, desc)
+                bot.send_message(message.chat.id, f"✅ Курс обновлён: {name}", reply_markup=menu.get_admin_menu())
+                logger.info(f"Admin {message.from_user.id} updated course {course_id} to: {name}")
+            except Exception as e:
+                bot.send_message(message.chat.id, "❌ Не удалось обновить курс. Попробуйте позже.")
+                logger.error(f"Error updating course: {e}")
         except Exception as e:
             logger.error(f"Error in apply_edit: {e}")
 
