@@ -3,7 +3,11 @@
   "chat_contact_map": {},
   "pending": {},
   "writing_ids": [],
-  "rate_limit_data": {},
+  "rate_limit_data": {
+    "8023822359": [
+      1751223837.1525562
+    ]
+  },
   "banned_users": [],
   "suspicious_activities": {}
 }

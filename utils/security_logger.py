@@ -2,6 +2,9 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional, Dict, Any
+import openpyxl
+from openpyxl.styles import Font
+import re
 
 class SecurityLogger:
     """Специализированный логгер для событий безопасности"""
@@ -131,47 +134,97 @@ class SecurityLogger:
         try:
             from datetime import datetime, timedelta
             cutoff_time = datetime.now() - timedelta(hours=hours)
-            
             events = {
                 "failed_logins": 0,
                 "suspicious_activities": 0,
                 "rate_limit_exceeded": 0,
                 "user_bans": 0,
                 "unauthorized_access": 0,
-                "input_validation_failed": 0
+                "input_validation_failed": 0,
+                "admin_actions": 0
             }
-            
             if not os.path.exists(self.log_file):
                 return events
-            
             with open(self.log_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     try:
-                        # Парсим время из лога
-                        log_time_str = line.split(' - ')[0]
-                        log_time = datetime.strptime(log_time_str, '%Y-%m-%d %H:%M:%S')
-                        
-                        if log_time >= cutoff_time:
-                            if "FAILED_LOGIN" in line:
-                                events["failed_logins"] += 1
-                            elif "SUSPICIOUS_ACTIVITY" in line:
-                                events["suspicious_activities"] += 1
-                            elif "RATE_LIMIT_EXCEEDED" in line:
-                                events["rate_limit_exceeded"] += 1
-                            elif "USER_BANNED" in line:
-                                events["user_bans"] += 1
-                            elif "UNAUTHORIZED_ACCESS" in line:
-                                events["unauthorized_access"] += 1
-                            elif "INPUT_VALIDATION_FAILED" in line:
-                                events["input_validation_failed"] += 1
-                    except:
+                        parts = line.split(' - ')
+                        if len(parts) >= 3:
+                            log_time_str = parts[0]
+                            log_time = datetime.strptime(log_time_str, '%Y-%m-%d %H:%M:%S')
+                            if log_time >= cutoff_time:
+                                if "FAILED_LOGIN" in line:
+                                    events["failed_logins"] += 1
+                                if "SUSPICIOUS_ACTIVITY" in line:
+                                    events["suspicious_activities"] += 1
+                                if "RATE_LIMIT_EXCEEDED" in line:
+                                    events["rate_limit_exceeded"] += 1
+                                if "USER_BANNED" in line:
+                                    events["user_bans"] += 1
+                                if "UNAUTHORIZED_ACCESS" in line:
+                                    events["unauthorized_access"] += 1
+                                if "INPUT_VALIDATION_FAILED" in line:
+                                    events["input_validation_failed"] += 1
+                                if "ADMIN_ACTION" in line:
+                                    events["admin_actions"] += 1
+                    except Exception as parse_error:
+                        self.logger.debug(f"Error parsing log line: {parse_error}, Line: {line.strip()}")
                         continue
-            
             return events
-            
         except Exception as e:
             self.logger.error(f"Error generating security report: {e}")
             return {}
+    
+    def export_security_log_to_xls(self, filepath: str, hours: int = 24) -> int:
+        """
+        Экспортирует события безопасности за последние N часов в XLS-файл.
+        Возвращает количество выгруженных событий.
+        """
+        from datetime import datetime, timedelta
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        events = []
+        if not os.path.exists(self.log_file):
+            return 0
+        with open(self.log_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    parts = line.split(' - ')
+                    if len(parts) >= 4:
+                        log_time_str = parts[0]
+                        log_time = datetime.strptime(log_time_str, '%Y-%m-%d %H:%M:%S')
+                        if log_time >= cutoff_time:
+                            event_type = parts[3].strip()
+                            details = ' - '.join(parts[4:]).strip() if len(parts) > 4 else ''
+                            # Пытаемся вытащить user_id и username
+                            user_id = ''
+                            username = ''
+                            m = re.search(r'User: (\d+)', details)
+                            if m:
+                                user_id = m.group(1)
+                            m2 = re.search(r'@([\w_]+)', details)
+                            if m2:
+                                username = m2.group(1)
+                            events.append([
+                                log_time.strftime('%Y-%m-%d %H:%M:%S'),
+                                event_type,
+                                user_id,
+                                username,
+                                details
+                            ])
+                except Exception as e:
+                    continue
+        # Создаем XLS
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = f"SecurityLog_{hours}h"
+        headers = ["Время", "Тип события", "User ID", "Username", "Детали"]
+        ws.append(headers)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        for row in events:
+            ws.append(row)
+        wb.save(filepath)
+        return len(events)
 
 # Глобальный экземпляр логгера безопасности
 security_logger = SecurityLogger() 

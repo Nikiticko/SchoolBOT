@@ -180,30 +180,111 @@ class SecurityManager:
 # Глобальный экземпляр менеджера безопасности
 security_manager = SecurityManager()
 
-def validate_user_input(text: str, input_type: str = "message") -> tuple[bool, str]:
-    """Универсальная валидация пользовательского ввода"""
+def validate_user_input_with_user_id(text: str, user_id: int, username: str, input_type: str = "message") -> tuple[bool, str]:
+    """Универсальная валидация пользовательского ввода с логированием user_id"""
     try:
         if not text or not isinstance(text, str):
+            # Логируем ошибку валидации
+            security_logger.log_input_validation_failed(
+                user_id,
+                username or "unknown",
+                input_type,
+                str(text)[:50],  # Ограничиваем длину для лога
+                "Empty or invalid data type"
+            )
             return False, "Пустой или неверный тип данных"
         
         # Санитизация
         sanitized_text = security_manager.sanitize_input(text)
         
         if input_type == "name":
-            return security_manager.validate_name(sanitized_text)
+            is_valid, error = security_manager.validate_name(sanitized_text)
         elif input_type == "age":
-            return security_manager.validate_age(sanitized_text)
+            is_valid, error = security_manager.validate_age(sanitized_text)
         elif input_type == "phone":
-            return security_manager.validate_phone(sanitized_text)
+            is_valid, error = security_manager.validate_phone(sanitized_text)
         elif input_type == "username":
-            return security_manager.validate_telegram_username(sanitized_text)
+            is_valid, error = security_manager.validate_telegram_username(sanitized_text)
         elif input_type == "course":
-            return security_manager.validate_course_name(sanitized_text)
+            is_valid, error = security_manager.validate_course_name(sanitized_text)
         else:
-            return security_manager.validate_message_length(sanitized_text)
+            is_valid, error = security_manager.validate_message_length(sanitized_text), ""
+        
+        # Логируем ошибку валидации если есть
+        if not is_valid:
+            security_logger.log_input_validation_failed(
+                user_id,
+                username or "unknown",
+                input_type,
+                sanitized_text[:50],  # Ограничиваем длину для лога
+                error
+            )
+        
+        return is_valid, error
     
     except Exception as e:
         # Логируем ошибку валидации
+        security_logger.log_input_validation_failed(
+            user_id,
+            username or "unknown",
+            input_type,
+            str(text)[:50] if text else "empty",
+            f"Validation error: {str(e)}"
+        )
+        log_error(security_logger, e, f"Validation error for type: {input_type}")
+        return False, "Ошибка валидации данных"
+
+def validate_user_input(text: str, input_type: str = "message") -> tuple[bool, str]:
+    """Универсальная валидация пользовательского ввода"""
+    try:
+        if not text or not isinstance(text, str):
+            # Логируем ошибку валидации
+            security_logger.log_input_validation_failed(
+                0,  # user_id будет передан позже
+                "unknown",
+                input_type,
+                str(text)[:50],  # Ограничиваем длину для лога
+                "Empty or invalid data type"
+            )
+            return False, "Пустой или неверный тип данных"
+        
+        # Санитизация
+        sanitized_text = security_manager.sanitize_input(text)
+        
+        if input_type == "name":
+            is_valid, error = security_manager.validate_name(sanitized_text)
+        elif input_type == "age":
+            is_valid, error = security_manager.validate_age(sanitized_text)
+        elif input_type == "phone":
+            is_valid, error = security_manager.validate_phone(sanitized_text)
+        elif input_type == "username":
+            is_valid, error = security_manager.validate_telegram_username(sanitized_text)
+        elif input_type == "course":
+            is_valid, error = security_manager.validate_course_name(sanitized_text)
+        else:
+            is_valid, error = security_manager.validate_message_length(sanitized_text), ""
+        
+        # Логируем ошибку валидации если есть
+        if not is_valid:
+            security_logger.log_input_validation_failed(
+                0,  # user_id будет передан позже
+                "unknown",
+                input_type,
+                sanitized_text[:50],  # Ограничиваем длину для лога
+                error
+            )
+        
+        return is_valid, error
+    
+    except Exception as e:
+        # Логируем ошибку валидации
+        security_logger.log_input_validation_failed(
+            0,  # user_id будет передан позже
+            "unknown",
+            input_type,
+            str(text)[:50] if text else "empty",
+            f"Validation error: {str(e)}"
+        )
         log_error(security_logger, e, f"Validation error for type: {input_type}")
         return False, "Ошибка валидации данных"
 

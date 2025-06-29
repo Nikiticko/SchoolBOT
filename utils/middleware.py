@@ -28,6 +28,9 @@ def security_middleware(bot: TeleBot, logger):
                 # Проверка безопасности
                 security_ok, error_msg = check_user_security(user_id, action_type)
                 if not security_ok:
+                    # Логируем подозрительную активность
+                    security_manager.record_suspicious_activity(user_id, f"blocked_{action_type}")
+                    
                     if isinstance(message_or_call, Message):
                         bot.send_message(chat_id, f"🚫 {error_msg}")
                     elif isinstance(message_or_call, CallbackQuery):
