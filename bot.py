@@ -9,7 +9,7 @@
 from telebot import TeleBot
 from config import API_TOKEN, CHECK_INTERVAL
 from data.db import init_db, migrate_database
-from services.monitor import start_monitoring
+from services.monitor import start_monitoring, init_review_monitor, stop_review_monitor, init_lesson_reminder_monitor, stop_lesson_reminder_monitor
 from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_error
 from utils.exceptions import (
     BotException, DatabaseException, ConfigurationException, 
@@ -18,7 +18,7 @@ from utils.exceptions import (
 from state.state_manager import state_manager
 
 # Регистрация хендлеров
-from handlers import commands, registration, admin
+from handlers import commands, registration, admin, reviews, course_editor
 from handlers.course_editor import register_course_editor
 from handlers.admin_actions import register_admin_actions, set_review_request_function
 from handlers.reviews import register as register_reviews
@@ -26,10 +26,25 @@ from state.users import cleanup_expired_registrations
 import os
 import threading
 import time
+import signal
+import sys
 os.system('cls || clear')
 
 # Настройка логирования
 logger = setup_logger('bot')
+
+def signal_handler(signum, frame):
+    """Обработчик сигналов для корректного завершения работы"""
+    logger.info(f"Received signal {signum}, shutting down...")
+    stop_review_monitor()
+    stop_lesson_reminder_monitor()
+    log_bot_shutdown(logger)
+    state_manager.stop()
+    sys.exit(0)
+
+# Регистрируем обработчики сигналов
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 # Инициализация бота и БД
 try:
@@ -55,6 +70,14 @@ try:
 except Exception as e:
     error_msg = handle_exception(e, logger, "Monitoring startup")
     logger.error(f"❌ {error_msg}")
+
+# Инициализация монитора запросов на оценку
+try:
+    review_monitor = init_review_monitor(bot)
+    lesson_reminder_monitor = init_lesson_reminder_monitor(bot)
+    logger.info("✅ Review and lesson reminder monitors initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize monitors: {e}")
 
 # Функция для периодической очистки просроченных регистраций
 def cleanup_registrations_periodically():
@@ -108,13 +131,11 @@ except KeyboardInterrupt:
     state_manager.stop()
 except Exception as e:
     # Обработка ошибки 409 (Conflict: terminated by other getUpdates request)
-    import telebot
     if isinstance(e, telebot.apihelper.ApiTelegramException) and '409' in str(e):
         logger.error("❌ [FATAL] 409 Conflict: Бот уже запущен где-то ещё! Завершаем работу.")
         print("❌ [FATAL] 409 Conflict: Бот уже запущен где-то ещё! Завершаем работу.")
         log_bot_shutdown(logger)
         state_manager.stop()
-        import sys
         sys.exit(1)
     
     error_msg = handle_exception(e, logger, "Bot polling")

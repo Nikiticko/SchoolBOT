@@ -22,7 +22,9 @@ from data.db import (
     get_all_contacts,
     get_database_stats,
     migrate_database,
-    clear_archive
+    clear_archive,
+    mark_review_request_sent,
+    get_completed_lessons_without_review_request
 )
 from state.users import writing_ids
 import utils.menu as menu
@@ -34,6 +36,7 @@ import openpyxl
 from utils.logger import setup_logger, log_bot_startup, log_bot_shutdown, log_error, log_admin_action
 from utils.security import log_security_event
 from utils.menu import create_admin_menu, create_confirm_menu
+from services.monitor import get_review_monitor
 
 logger = setup_logger('admin')
 
@@ -271,6 +274,13 @@ def register(bot, logger):
 
         writing_ids.discard(message.from_user.id)
         logger.info(f"Admin {message.from_user.id} assigned lesson for application {app_id}")
+
+        # Инициализируем монитор запросов на оценку, если он еще не запущен
+        review_monitor = get_review_monitor()
+        if review_monitor:
+            logger.info("Review monitor is already running")
+        else:
+            logger.info("Review monitor not found - will be initialized in main bot startup")
 
     @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
     def handle_course_menu(message):
@@ -634,6 +644,118 @@ def register(bot, logger):
                 
         except Exception as e:
             logger.error(f"Error in handle_clear_reviews_confirm: {e}")
+
+    @bot.message_handler(commands=["review_stats"])
+    def handle_review_stats_command(message):
+        """Показывает статистику по запросам на оценку"""
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command review_stats")
+            return
+        
+        try:
+            # Получаем статистику монитора
+            review_monitor = get_review_monitor()
+            if review_monitor:
+                stats = review_monitor.get_stats()
+                
+                stats_text = (
+                    "📊 Статистика запросов на оценку:\n\n"
+                    f"🔄 Монитор активен: {'✅' if stats.get('monitor_running') else '❌'}\n"
+                    f"⏱️ Интервал проверки: {stats.get('check_interval_seconds', 0)} сек\n"
+                    f"⏰ Задержка после урока: {stats.get('delay_after_lesson_hours', 0)} ч\n\n"
+                    f"📋 Заявок в ожидании: {stats.get('pending_applications', 0)}\n"
+                    f"📅 Назначенных уроков: {stats.get('assigned_applications', 0)}\n"
+                    f"⭐ Всего отзывов: {stats.get('reviews_count', 0)}\n"
+                )
+                
+                # Получаем уроки без запроса на оценку
+                lessons_without_review = get_completed_lessons_without_review_request()
+                if lessons_without_review:
+                    stats_text += f"\n⚠️ Уроков без запроса на оценку: {len(lessons_without_review)}"
+                
+                bot.send_message(message.chat.id, stats_text)
+                logger.info(f"Admin {message.from_user.id} requested review stats")
+                
+            else:
+                bot.send_message(message.chat.id, "❌ Монитор запросов на оценку не запущен")
+                
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Ошибка при получении статистики: {str(e)}")
+            logger.error(f"Error in review stats command: {e}")
+
+    @bot.message_handler(commands=["send_review_request"])
+    def handle_send_review_request_command(message):
+        """Отправляет запрос на оценку для конкретной заявки"""
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command send_review_request")
+            return
+        
+        try:
+            # Парсим ID заявки из команды
+            args = message.text.split()
+            if len(args) != 2:
+                bot.send_message(message.chat.id, "❌ Использование: /send_review_request <ID_заявки>")
+                return
+            
+            app_id = int(args[1])
+            
+            # Проверяем существование заявки
+            app_data = get_application_by_id(app_id)
+            if not app_data:
+                bot.send_message(message.chat.id, f"❌ Заявка #{app_id} не найдена")
+                return
+            
+            # Отправляем запрос на оценку
+            review_monitor = get_review_monitor()
+            if review_monitor:
+                success = review_monitor.send_immediate_review_request(app_id)
+                if success:
+                    bot.send_message(message.chat.id, f"✅ Запрос на оценку отправлен для заявки #{app_id}")
+                else:
+                    bot.send_message(message.chat.id, f"❌ Не удалось отправить запрос на оценку для заявки #{app_id}")
+            else:
+                bot.send_message(message.chat.id, "❌ Монитор запросов на оценку не запущен")
+                
+            logger.info(f"Admin {message.from_user.id} manually sent review request for application {app_id}")
+            
+        except ValueError:
+            bot.send_message(message.chat.id, "❌ Неверный ID заявки")
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Ошибка при отправке запроса: {str(e)}")
+            logger.error(f"Error in send review request command: {e}")
+
+    @bot.message_handler(commands=["check_review_requests"])
+    def handle_check_review_requests_command(message):
+        """Проверяет уроки, для которых нужно отправить запрос на оценку"""
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command check_review_requests")
+            return
+        
+        try:
+            lessons = get_completed_lessons_without_review_request()
+            
+            if not lessons:
+                bot.send_message(message.chat.id, "✅ Нет уроков, требующих отправки запроса на оценку")
+                return
+            
+            response = f"📋 Найдено {len(lessons)} уроков без запроса на оценку:\n\n"
+            
+            for i, lesson in enumerate(lessons[:10], 1):  # Показываем первые 10
+                app_id, tg_id, course, lesson_date, lesson_link = lesson
+                formatted_date = format_date_for_display(lesson_date)
+                response += f"{i}. Заявка #{app_id} - {course} ({formatted_date})\n"
+            
+            if len(lessons) > 10:
+                response += f"\n... и еще {len(lessons) - 10} уроков"
+            
+            response += "\n\n💡 Используйте /send_review_request <ID> для ручной отправки"
+            
+            bot.send_message(message.chat.id, response)
+            logger.info(f"Admin {message.from_user.id} checked review requests")
+            
+        except Exception as e:
+            bot.send_message(message.chat.id, f"❌ Ошибка при проверке: {str(e)}")
+            logger.error(f"Error in check review requests command: {e}")
 
 def register_admin_handlers(bot: TeleBot):
     @bot.message_handler(commands=['admin'])

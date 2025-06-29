@@ -71,7 +71,8 @@ def init_db():
                 lesson_link TEXT,
                 status TEXT,
                 created_at DATETIME DEFAULT (datetime('now', 'localtime')),
-                reminder_sent BOOLEAN DEFAULT 0
+                reminder_sent BOOLEAN DEFAULT 0,
+                review_request_sent BOOLEAN DEFAULT 0
             )
         """)
         
@@ -841,32 +842,89 @@ def migrate_database():
         return False
 
 def get_database_stats():
-    """Возвращает статистику базы данных"""
-    try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            
-            stats = {}
-            
-            # Статистика по таблицам
-            tables = ['applications', 'courses', 'contacts', 'reviews', 'archive']
-            for table in tables:
-                cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                stats[f"{table}_count"] = cursor.fetchone()[0]
-            
-            # Размер базы данных
-            cursor.execute("PRAGMA page_count")
-            page_count = cursor.fetchone()[0]
-            cursor.execute("PRAGMA page_size")
-            page_size = cursor.fetchone()[0]
-            stats['database_size_mb'] = round((page_count * page_size) / (1024 * 1024), 2)
-            
-            # Информация об индексах
-            cursor.execute("PRAGMA index_list(applications)")
-            stats['applications_indexes'] = len(cursor.fetchall())
-            
-            return stats
-            
-    except Exception as e:
-        print(f"❌ Ошибка при получении статистики БД: {e}")
-        return {}
+    """Получает статистику базы данных"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Статистика заявок
+        cursor.execute("SELECT COUNT(*) FROM applications WHERE status = 'Ожидает'")
+        pending_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM applications WHERE status = 'Назначено'")
+        assigned_count = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM archive")
+        archived_count = cursor.fetchone()[0]
+        
+        # Статистика курсов
+        cursor.execute("SELECT COUNT(*) FROM courses WHERE active = 1")
+        active_courses = cursor.fetchone()[0]
+        
+        # Статистика отзывов
+        cursor.execute("SELECT COUNT(*) FROM reviews")
+        reviews_count = cursor.fetchone()[0]
+        
+        # Статистика обращений
+        cursor.execute("SELECT COUNT(*) FROM contacts WHERE status = 'Ожидает ответа'")
+        open_contacts = cursor.fetchone()[0]
+        
+        return {
+            'pending_applications': pending_count,
+            'assigned_applications': assigned_count,
+            'archived_applications': archived_count,
+            'active_courses': active_courses,
+            'reviews_count': reviews_count,
+            'open_contacts': open_contacts
+        }
+
+def get_completed_lessons_without_review_request():
+    """Получает завершенные уроки, для которых еще не отправлен запрос на оценку"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, tg_id, course, lesson_date, lesson_link
+            FROM applications 
+            WHERE status = 'Назначено' 
+            AND lesson_date < datetime('now', 'localtime')
+            AND review_request_sent = 0
+            AND lesson_date IS NOT NULL
+            ORDER BY lesson_date DESC
+        """)
+        return cursor.fetchall()
+
+def mark_review_request_sent(app_id):
+    """Отмечает, что запрос на оценку был отправлен для заявки"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE applications 
+            SET review_request_sent = 1 
+            WHERE id = ?
+        """, (app_id,))
+        conn.commit()
+
+def get_lessons_completed_after_time(hours=0.5):
+    """Получает уроки, завершенные более указанного времени назад"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, tg_id, course, lesson_date, lesson_link
+            FROM applications 
+            WHERE status = 'Назначено' 
+            AND lesson_date < datetime('now', '-{} hours', 'localtime')
+            AND review_request_sent = 0
+            AND lesson_date IS NOT NULL
+            ORDER BY lesson_date DESC
+        """.format(hours))
+        return cursor.fetchall()
+
+def reset_review_request_status(app_id):
+    """Сбрасывает статус отправки запроса на оценку (для тестирования)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE applications 
+            SET review_request_sent = 0 
+            WHERE id = ?
+        """, (app_id,))
+        conn.commit()
