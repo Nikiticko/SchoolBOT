@@ -226,33 +226,77 @@ def register(bot, logger):
     @ensure_stage(lambda m: get_registration_stage(m.chat.id), "course", error_message="Сначала выберите курс.")
     def process_course(message):
         chat_id = message.chat.id
-        
         # Проверка безопасности
         security_ok, error_msg = check_user_security(message.from_user.id, "process_course")
         if not security_ok:
             bot.send_message(chat_id, f"🚫 {error_msg}")
             return
-        
         # Проверяем отмену
         if message.text == "🔙 Отмена":
             handle_cancel_action(bot, message, "регистрация", logger)
             return
-
         selected = message.text.strip()
         courses = get_active_courses()
         course_names = [c[1] for c in courses]
-
         if selected not in course_names:
             msg = bot.send_message(chat_id, "Пожалуйста, выберите курс из списка.", reply_markup=get_appropriate_menu(chat_id))
             bot.register_next_step_handler(msg, process_course)
             return
-
-        # ИСПРАВЛЕНО: Используем StateManager
         from state.users import update_user_data
         update_user_data(chat_id, course=selected)
         user = message.from_user
-        update_user_data(chat_id, contact=f"@{user.username}" if user.username else "")
+        # Новый этап: сначала пробуем username, если нет — просим телефон
+        if user.username:
+            update_user_data(chat_id, contact=f"@{user.username}")
+            update_registration_stage(chat_id, "confirmation")
+            send_confirmation(bot, chat_id)
+        else:
+            update_registration_stage(chat_id, "contact")
+            ask_for_phone(bot, chat_id)
+
+    def ask_for_phone(bot, chat_id):
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        button = types.KeyboardButton("📱 Отправить номер телефона", request_contact=True)
+        markup.add(button)
+        markup.add("🔙 Отмена")
+        msg = bot.send_message(chat_id, "У вас не установлен username в Telegram. Пожалуйста, отправьте номер телефона, привязанный к Telegram, используя кнопку ниже или введите его вручную:", reply_markup=markup)
+        bot.register_next_step_handler(msg, process_contact)
+
+    @bot.message_handler(content_types=["contact", "text"])
+    def process_contact(message):
+        chat_id = message.chat.id
+        # Проверка этапа
+        from state.users import get_registration_stage, update_user_data, update_registration_stage, clear_user_data
+        if get_registration_stage(chat_id) != "contact":
+            return  # Не на этом этапе
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            handle_cancel_action(bot, message, "регистрация", logger)
+            return
+        phone = None
+        if message.contact and message.contact.phone_number:
+            phone = message.contact.phone_number
+        elif message.text:
+            phone = message.text.strip()
+        # Валидация номера
+        import re
+        phone_clean = re.sub(r"[^\d+]", "", phone or "")
+        if phone_clean.startswith("8"):
+            phone_clean = "+7" + phone_clean[1:]
+        elif phone_clean.startswith("7") and not phone_clean.startswith("+7"):
+            phone_clean = "+7" + phone_clean[1:]
+        elif not phone_clean.startswith("+7"):
+            phone_clean = "+7" + phone_clean[-10:] if len(phone_clean) >= 10 else phone_clean
+        # Проверка формата
+        if not re.fullmatch(r"\+7\d{10}", phone_clean):
+            msg = bot.send_message(chat_id, "❌ Некорректный номер. Введите номер в формате +7XXXXXXXXXX или используйте кнопку для отправки номера.", reply_markup=types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True).add(types.KeyboardButton("📱 Отправить номер телефона", request_contact=True), "🔙 Отмена"))
+            bot.register_next_step_handler(msg, process_contact)
+            return
+        # Сохраняем контакт
+        update_user_data(chat_id, contact=phone_clean)
         update_registration_stage(chat_id, "confirmation")
+        # Убираем клавиатуру
+        bot.send_message(chat_id, "Спасибо! Ваш номер сохранён.", reply_markup=types.ReplyKeyboardRemove())
         send_confirmation(bot, chat_id)
 
     def send_confirmation(bot, chat_id):
