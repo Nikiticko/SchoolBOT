@@ -6,7 +6,7 @@ from .archive import register_archive_handlers
 from .courses import register_courses_handlers
 from .contacts import register_contacts_handlers
 from .reviews import register_reviews_handlers
-from .menu import get_admin_menu, create_admin_menu, create_confirm_menu, get_cancel_button
+from .menu import get_admin_menu, create_confirm_menu, get_cancel_button
 from .export import register_export_handlers
 
 def register_all_admin_handlers(bot, logger):

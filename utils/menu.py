@@ -31,44 +31,6 @@ def is_admin(user_id):
     """Проверяет, является ли пользователь администратором"""
     return str(user_id) == str(ADMIN_ID)
 
-def create_admin_menu():
-    """Инлайн-меню для администратора с новыми опциями БД"""
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    
-    # Основные разделы
-    markup.add(
-        types.InlineKeyboardButton("📝 Заявки", callback_data="admin_applications"),
-        types.InlineKeyboardButton("🗄️ Архив", callback_data="admin_archive")
-    )
-    markup.add(
-        types.InlineKeyboardButton("📚 Курсы", callback_data="admin_courses"),
-        types.InlineKeyboardButton("📞 Обращения", callback_data="admin_contacts")
-    )
-    markup.add(
-        types.InlineKeyboardButton("⭐ Отзывы", callback_data="admin_reviews"),
-        types.InlineKeyboardButton("📊 Статистика БД", callback_data="admin_db_stats")
-    )
-    
-    # Очистка данных
-    markup.add(
-        types.InlineKeyboardButton("🗑️ Очистить заявки", callback_data="admin_clear_applications"),
-        types.InlineKeyboardButton("🗑️ Очистить архив", callback_data="admin_clear_archive")
-    )
-    markup.add(
-        types.InlineKeyboardButton("🗑️ Очистить курсы", callback_data="admin_clear_courses"),
-        types.InlineKeyboardButton("🗑️ Очистить обращения", callback_data="admin_clear_contacts")
-    )
-    markup.add(
-        types.InlineKeyboardButton("🗑️ Очистить отзывы", callback_data="admin_clear_reviews")
-    )
-    
-    # Миграция БД
-    markup.add(
-        types.InlineKeyboardButton("🔧 Миграция БД", callback_data="admin_migrate_db")
-    )
-    
-    return markup
-
 def get_lesson_management_menu():
     """Меню управления уроками (на месте клавиатуры)"""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
