@@ -101,9 +101,11 @@ except Exception as e:
 
 # Регистрация всех обработчиков
 try:
+    # Сначала регистрируем админские обработчики (включая /start для админа)
+    admin.register_all_admin_handlers(bot, logger)
+    # Потом обычные обработчики
     commands.register_handlers(bot)
     registration.register_handlers(bot)
-    admin.register_all_admin_handlers(bot, logger)
     register_reviews(bot, logger)  # обработчики отзывов
     
     logger.info("✅ All handlers registered successfully")

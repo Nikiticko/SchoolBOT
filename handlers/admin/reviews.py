@@ -7,6 +7,26 @@ def register_reviews_handlers(bot, logger):
     def is_admin(user_id):
         return str(user_id) == str(ADMIN_ID)
 
+    @bot.message_handler(func=lambda m: m.text == "⭐ Отзывы" and is_admin(m.from_user.id))
+    def handle_admin_reviews(message):
+        stats = get_review_stats()
+        if isinstance(stats, dict):
+            total = stats.get('total', 0)
+            public = stats.get('public', 0)
+            anonymous = stats.get('anonymous', 0)
+        else:
+            # Ожидаем кортеж (total, public, anonymous)
+            total, public, anonymous = stats if stats and len(stats) == 3 else (0, 0, 0)
+
+        msg = (
+            f"⭐ <b>Статистика отзывов</b>\n\n"
+            f"Всего отзывов: <b>{total}</b>\n"
+            f"Публичных: <b>{public}</b>\n"
+            f"Анонимных: <b>{anonymous}</b>\n\n"
+            f"Для очистки отзывов используйте команду /ClearReviews"
+        )
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")
+
     @bot.message_handler(commands=["ClearReviews"])
     def handle_clear_reviews_command(message):
         if not is_admin(message.from_user.id):
@@ -46,4 +66,6 @@ def register_reviews_handlers(bot, logger):
                 logger.error(f"Error clearing reviews: {e}")
         else:
             bot.send_message(call.message.chat.id, "❌ Очистка отзывов отменена.")
-            logger.info(f"Admin {call.from_user.id} cancelled reviews clear") 
+            logger.info(f"Admin {call.from_user.id} cancelled reviews clear")
+
+ 

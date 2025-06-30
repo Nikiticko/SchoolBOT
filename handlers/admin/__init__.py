@@ -6,10 +6,39 @@ from .archive import register_archive_handlers
 from .courses import register_courses_handlers
 from .contacts import register_contacts_handlers
 from .reviews import register_reviews_handlers
-from .menu import get_admin_menu, create_confirm_menu, get_cancel_button
+from utils.menu import get_admin_menu, create_confirm_menu, get_cancel_button
 from .export import register_export_handlers
+from config import ADMIN_ID
 
 def register_all_admin_handlers(bot, logger):
+    """Регистрирует все админские обработчики"""
+    
+    def is_admin(user_id):
+        result = str(user_id) == str(ADMIN_ID)
+        logger.info(f"Admin check: user_id={user_id}, ADMIN_ID={ADMIN_ID}, result={result}")
+        return result
+    
+    # Обработчик для команды /admin
+    @bot.message_handler(commands=['admin'])
+    def handle_admin_command(message):
+        if not is_admin(message.from_user.id):
+            logger.warning(f"User {message.from_user.id} tried to access admin command")
+            return
+        bot.send_message(message.chat.id, "🔧 Панель администратора", reply_markup=get_admin_menu())
+        logger.info(f"Admin {message.from_user.id} accessed admin panel")
+    
+    # Обработчик для /start для админа
+    @bot.message_handler(commands=['start'])
+    def handle_start_command(message):
+        logger.info(f"Start command received from user {message.from_user.id} (admin check: {is_admin(message.from_user.id)})")
+        if is_admin(message.from_user.id):
+            bot.send_message(message.chat.id, "🔧 Добро пожаловать в панель администратора!", reply_markup=get_admin_menu())
+            logger.info(f"Admin {message.from_user.id} started bot successfully")
+        else:
+            logger.info(f"Non-admin user {message.from_user.id} sent /start, will be handled by commands.py")
+        # Для обычных пользователей обработчик будет в commands.py
+    
+    # Регистрируем все остальные админские обработчики
     register_security_handlers(bot, logger)
     register_applications_handlers(bot, logger)
     register_archive_handlers(bot, logger)

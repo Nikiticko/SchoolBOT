@@ -8,7 +8,7 @@ from data.db import (
     format_date_for_display,
     validate_date_format
 )
-from state.users import writing_ids
+from state.state_manager import state_manager
 from config import ADMIN_ID
 import utils.menu as menu
 
@@ -381,17 +381,17 @@ def register_admin_actions(bot, logger):
     @bot.callback_query_handler(func=lambda c: c.data.startswith("reschedule:"))
     def handle_reschedule_callback(call):
         app_id = int(call.data.split(":")[1])
-        writing_ids.add(call.from_user.id)
+        state_manager.add_writing_id(call.from_user.id)
         bot.send_message(call.message.chat.id, f"🕓 Введите новую дату и время для заявки #{app_id} (например: 22.06 17:30):", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(call.message, lambda m: get_new_date(m, app_id))
 
     def get_new_date(message, app_id):
-        if message.from_user.id not in writing_ids:
+        if not state_manager.is_writing_id(message.from_user.id):
             return
         
         # Проверяем отмену
         if message.text == "🔙 Отмена":
-            writing_ids.discard(message.from_user.id)
+            state_manager.remove_writing_id(message.from_user.id)
             menu.handle_cancel_action(bot, message, "урок", logger)
             return
         
@@ -418,12 +418,12 @@ def register_admin_actions(bot, logger):
         bot.register_next_step_handler(message, lambda m: apply_reschedule(m, app_id, date_text))
 
     def apply_reschedule(message, app_id, date_text):
-        if message.from_user.id not in writing_ids:
+        if not state_manager.is_writing_id(message.from_user.id):
             return
         
         # Проверяем отмену
         if message.text == "🔙 Отмена":
-            writing_ids.discard(message.from_user.id)
+            state_manager.remove_writing_id(message.from_user.id)
             menu.handle_cancel_action(bot, message, "урок", logger)
             return
         
@@ -457,7 +457,7 @@ def register_admin_actions(bot, logger):
             except Exception as e:
                 logger.error(f"Failed to notify user {tg_id} about reschedule: {e}")
 
-        writing_ids.discard(message.from_user.id)
+        state_manager.remove_writing_id(message.from_user.id)
         logger.info(f"Admin {message.from_user.id} rescheduled lesson for application {app_id}")
 
     @bot.callback_query_handler(func=lambda c: c.data.startswith("assign:"))
@@ -479,7 +479,7 @@ def register_admin_actions(bot, logger):
             # Сохраняем app_id в user_data для последующего шага
             from state.users import user_data
             user_data[chat_id] = {"assign_app_id": app_id}
-            bot.send_message(chat_id, msg)
+            bot.send_message(chat_id, msg, reply_markup=menu.get_cancel_button())
             bot.register_next_step_handler(call.message, process_assign_date)
             logger.info(f"Admin {call.from_user.id} started assigning lesson for application {app_id}")
         except Exception as e:
@@ -492,14 +492,22 @@ def register_admin_actions(bot, logger):
         if not app_id:
             bot.send_message(chat_id, "❌ Не найдена заявка для назначения.")
             return
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            user_data.pop(chat_id, None)
+            menu.handle_cancel_action(bot, message, "урок", logger)
+            return
+        
         date_text = message.text.strip()
-        # Валидация даты
-        if not validate_date_format(date_text):
-            bot.send_message(chat_id, "❌ Неверный формат даты. Введите в формате: 22.06 17:30")
+        # Валидация даты - ИСПРАВЛЕНО
+        is_valid, result = validate_date_format(date_text)
+        if not is_valid:
+            bot.send_message(chat_id, f"❌ {result}\n\n📅 Попробуйте еще раз в формате ДД.ММ ЧЧ:ММ (например: 22.06 17:30):", reply_markup=menu.get_cancel_button())
             bot.register_next_step_handler(message, process_assign_date)
             return
         user_data[chat_id]["assign_date"] = date_text
-        bot.send_message(chat_id, "Введите ссылку на урок (или - если нет):")
+        bot.send_message(chat_id, "Введите ссылку на урок (или - если нет):", reply_markup=menu.get_cancel_button())
         bot.register_next_step_handler(message, process_assign_link)
 
     def process_assign_link(message):
@@ -510,6 +518,13 @@ def register_admin_actions(bot, logger):
         if not app_id or not date_text:
             bot.send_message(chat_id, "❌ Не найдена заявка или дата для назначения.")
             return
+        
+        # Проверяем отмену
+        if message.text == "🔙 Отмена":
+            user_data.pop(chat_id, None)
+            menu.handle_cancel_action(bot, message, "урок", logger)
+            return
+        
         link = message.text.strip()
         try:
             update_application_lesson(app_id, date_text, link)
