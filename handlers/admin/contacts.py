@@ -330,7 +330,7 @@ def register_contacts_handlers(bot, logger):
                 # Только текст
                 bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:\n\n{reply_text}")
                 update_contact_reply(contact_id, reply_text)
-            del user_data[chat_id]
+                del user_data[chat_id]
             bot.send_message(chat_id, "✅ Ответ отправлен пользователю!", reply_markup=get_admin_menu())
             logger.info(f"Admin {message.from_user.id} replied to contact {contact_id}")
         except Exception as e:

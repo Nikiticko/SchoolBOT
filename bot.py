@@ -19,15 +19,16 @@ from state.state_manager import state_manager
 from utils.cleanup import auto_cleanup
 
 # Регистрация хендлеров
-from handlers import commands, registration, admin, reviews
+from handlers import admin
+from handlers.users import commands, registration, reviews
 from handlers.admin import register_all_admin_handlers
-from handlers.reviews import register as register_reviews
 from state.users import cleanup_expired_registrations
 import os
 import threading
 import time
 import signal
 import sys
+import telebot
 os.system('cls || clear')
 
 # Настройка логирования
@@ -115,7 +116,7 @@ try:
     # Потом обычные обработчики
     commands.register_handlers(bot)
     registration.register_handlers(bot)
-    register_reviews(bot, logger)  # обработчики отзывов
+    reviews.register(bot, logger)
     
     logger.info("✅ All handlers registered successfully")
 except Exception as e:
