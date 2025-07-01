@@ -27,16 +27,12 @@ def register_all_admin_handlers(bot, logger):
         bot.send_message(message.chat.id, "🔧 Панель администратора", reply_markup=get_admin_menu())
         logger.info(f"Admin {message.from_user.id} accessed admin panel")
     
-    # Обработчик для /start для админа
-    @bot.message_handler(commands=['start'])
+    # Обработчик для /start только для админа
+    @bot.message_handler(commands=['start'], func=lambda m: str(m.from_user.id) == str(ADMIN_ID))
     def handle_start_command(message):
         logger.info(f"Start command received from user {message.from_user.id} (admin check: {is_admin(message.from_user.id)})")
-        if is_admin(message.from_user.id):
-            bot.send_message(message.chat.id, "🔧 Добро пожаловать в панель администратора!", reply_markup=get_admin_menu())
-            logger.info(f"Admin {message.from_user.id} started bot successfully")
-        else:
-            logger.info(f"Non-admin user {message.from_user.id} sent /start, will be handled by commands.py")
-        # Для обычных пользователей обработчик будет в commands.py
+        bot.send_message(message.chat.id, "🔧 Добро пожаловать в панель администратора!", reply_markup=get_admin_menu())
+        logger.info(f"Admin {message.from_user.id} started bot successfully")
     
     # Регистрируем все остальные админские обработчики
     register_security_handlers(bot, logger)
