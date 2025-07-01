@@ -2,13 +2,14 @@
 from telebot import types
 import utils.menu as menu
 from data.db import (
-    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason, update_application, delete_application_by_tg_id
+    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason, update_application, delete_application_by_tg_id, get_reviews_for_publication_with_deleted
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from state.users import user_data
 from config import ADMIN_ID
 from utils.security import check_user_security, validate_user_input, security_manager
 from utils.decorators import error_handler, ensure_text_message, ensure_stage
+from utils.menu import get_appropriate_menu
 
 def register_handlers(bot):
     """Регистрация обработчиков команд"""
@@ -52,7 +53,7 @@ def register(bot, logger):
                     f"👋 Привет, {parent_name}!\n\n"
                     f"✅ У вас назначено занятие:\n"
                     f"🧒 Ученик: {student_name}\n"
-                    f"�� Курс: {course}\n"
+                    f"📘 Курс: {course}\n"
                     f"📅 Дата: {formatted_date}\n"
                     f"🔗 Ссылка: {lesson_link}\n\n"
                     f"🎯 Готовьтесь к занятию!"
@@ -96,7 +97,7 @@ def register(bot, logger):
         elif status == "Назначено":
             formatted_date = lesson_date if isinstance(lesson_date, str) else lesson_date.strftime("%d.%m %H:%M")
             msg = (
-                f"�� Ваше занятие:\n\n"
+                f"📋 Ваше занятие:\n\n"
                 f"👤 Родитель: {parent_name}\n"
                 f"🧒 Ученик: {student_name}\n"
                 f"📘 Курс: {course}\n"
@@ -664,6 +665,42 @@ def register(bot, logger):
         for c in courses:
             text += f"<b>{c[1]}</b>\n{c[2]}\n\n"
         bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+
+    @bot.message_handler(func=lambda m: m.text == "⭐ Отзывы")
+    @error_handler()
+    def handle_show_reviews_user(message):
+        try:
+            reviews = get_reviews_for_publication_with_deleted(limit=5)
+            if not reviews or not isinstance(reviews, list):
+                bot.send_message(message.chat.id, "Пока нет отзывов. Будьте первым! 😊", reply_markup=get_appropriate_menu(message.from_user.id))
+                return
+            msg = "⭐ Отзывы наших учеников:\n\n"
+            for i, review in enumerate(reviews, 1):
+                rating, feedback, is_anonymous, parent_name, student_name, course, created_at = review
+                from datetime import datetime
+                try:
+                    dt = datetime.fromisoformat(created_at)
+                    date_str = dt.strftime("%d.%m.%Y")
+                except:
+                    date_str = "недавно"
+                stars = "⭐" * rating
+                if parent_name is None and student_name is None:
+                    author = "[Заявка удалена]"
+                    course_display = "[Заявка удалена]"
+                else:
+                    author = f"{parent_name} ({student_name})"
+                    course_display = course or "[Курс не указан]"
+                msg += (
+                    f"{i}. {stars} ({rating}/10)\n"
+                    f"📘 Курс: {course_display}\n"
+                    f"👤 {author}\n"
+                    f"📝 {feedback[:100]}{'...' if len(feedback) > 100 else ''}\n"
+                    f"📅 {date_str}\n\n"
+                )
+            msg += "💬 Хотите оставить свой отзыв? Напишите нам!"
+            bot.send_message(message.chat.id, msg, reply_markup=get_appropriate_menu(message.from_user.id))
+        except Exception as e:
+            bot.send_message(message.chat.id, "⚠️ Произошла ошибка. Попробуйте позже.")
 
 def is_admin(user_id):
     return str(user_id) == str(ADMIN_ID)

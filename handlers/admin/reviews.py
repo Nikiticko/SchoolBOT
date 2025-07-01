@@ -7,7 +7,7 @@ def register_reviews_handlers(bot, logger):
     def is_admin(user_id):
         return str(user_id) == str(ADMIN_ID)
 
-    @bot.message_handler(func=lambda m: m.text == "⭐ Отзывы" and is_admin(m.from_user.id))
+    @bot.message_handler(func=lambda m: m.text == "📊 Статистика отзывов" and str(m.from_user.id) == str(ADMIN_ID))
     def handle_admin_reviews(message):
         stats = get_review_stats()
         if isinstance(stats, dict):
@@ -67,5 +67,26 @@ def register_reviews_handlers(bot, logger):
         else:
             bot.send_message(call.message.chat.id, "❌ Очистка отзывов отменена.")
             logger.info(f"Admin {call.from_user.id} cancelled reviews clear")
+
+    @bot.message_handler(func=lambda m: m.text == "⭐ Отзывы" and str(m.from_user.id) == str(ADMIN_ID))
+    def handle_admin_all_reviews(message):
+        reviews = get_all_reviews()
+        if not reviews:
+            bot.send_message(message.chat.id, "Пока нет отзывов.", parse_mode="HTML")
+            return
+        msg = "<b>Все отзывы:</b>\n\n"
+        for i, review in enumerate(reviews, 1):
+            _, rating, feedback, is_anonymous, parent_name, student_name, course, created_at, user_tg_id = review
+            author = f"{parent_name} ({student_name})" if parent_name and student_name else "[Заявка удалена]"
+            course_display = course or "[Курс не указан]"
+            anonymity = "Анонимно" if is_anonymous else "Публично"
+            msg += (
+                f"{i}. ⭐ {rating}/10 | {anonymity}\n"
+                f"Курс: {course_display}\n"
+                f"Автор: {author}\n"
+                f"Текст: {feedback[:100]}{'...' if len(feedback) > 100 else ''}\n"
+                f"Дата: {created_at}\n\n"
+            )
+        bot.send_message(message.chat.id, msg, parse_mode="HTML")
 
  

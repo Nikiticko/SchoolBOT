@@ -252,12 +252,12 @@ def register(bot, logger):
             log_error(logger, e, f"Handling skip/cancel review for user {call.from_user.id}")
     
     @bot.message_handler(func=lambda m: m.text == "⭐ Отзывы")
+    @error_handler()
     def handle_show_reviews(message):
-        """Показывает публичные отзывы"""
+        print(f"handle_show_reviews called for user {message.from_user.id}")  # Для диагностики
         try:
             reviews = get_reviews_for_publication_with_deleted(limit=5)
-            
-            if not reviews:
+            if not reviews or not isinstance(reviews, list):
                 bot.send_message(message.chat.id, "Пока нет отзывов. Будьте первым! 😊", reply_markup=get_appropriate_menu(message.from_user.id))
                 return
             
@@ -298,6 +298,7 @@ def register(bot, logger):
             log_user_action(logger, message.from_user.id, "viewed_reviews")
             
         except Exception as e:
-            log_error(logger, e, f"Showing reviews for user {message.from_user.id}")
+            print(f"Error in handle_show_reviews: {e}")
+            bot.send_message(message.chat.id, "⚠️ Произошла ошибка. Попробуйте позже.")
     
     return send_review_request 
