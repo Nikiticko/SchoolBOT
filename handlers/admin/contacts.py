@@ -2,13 +2,10 @@ from telebot import types
 from data.db import get_open_contacts, clear_contacts, update_contact_reply, ban_user_by_contact, is_user_banned, get_contact_by_id
 from config import ADMIN_ID
 from utils.security_logger import security_logger
-from utils.menu import get_admin_menu
+from utils.menu import get_admin_menu, is_admin
 from state.users import user_data
 
 def register_contacts_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(func=lambda m: m.text == "📨 Обращения пользователей" and is_admin(m.from_user.id))
     def handle_contacts_menu(message):
         try:
@@ -221,7 +218,7 @@ def register_contacts_handlers(bot, logger):
             
             msg = f"💬 Ответ на обращение #{contact_id}\n"
             msg += f"👤 Пользователь: {tg_id}\n"
-            msg += f"📝 Текст обращения: {contact_text}\n\n"
+            msg += f"�� Текст обращения: {contact_text}\n\n"
             
             msg += "✍️ Введите ваш ответ или отправьте файл (фото, документ, голосовое, видео):\n\n"
             msg += "Для отмены нажмите '🔙 Отмена'"

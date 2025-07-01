@@ -11,6 +11,7 @@ from data.db import (
 from state.state_manager import state_manager
 from config import ADMIN_ID
 import utils.menu as menu
+from utils.menu import is_admin
 
 # Глобальная переменная для функции отправки отзывов
 send_review_request_func = None
@@ -23,9 +24,6 @@ def set_review_request_function(func):
     """Устанавливает функцию для отправки запросов на отзывы"""
     global send_review_request_func
     send_review_request_func = func
-
-def is_admin(user_id):
-    return str(user_id) == str(ADMIN_ID)
 
 def register_admin_actions(bot, logger):
 

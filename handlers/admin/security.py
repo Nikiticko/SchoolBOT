@@ -3,11 +3,9 @@ from utils.security_logger import security_logger
 from config import ADMIN_ID
 import os
 from datetime import datetime
+from utils.menu import is_admin
 
 def register_security_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(commands=["security_report"])
     def handle_security_report(message):
         if not is_admin(message.from_user.id):

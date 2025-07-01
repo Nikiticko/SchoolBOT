@@ -6,17 +6,12 @@ from .archive import register_archive_handlers
 from .courses import register_courses_handlers
 from .contacts import register_contacts_handlers
 from .reviews import register_reviews_handlers
-from utils.menu import get_admin_menu, create_confirm_menu, get_cancel_button
+from utils.menu import get_admin_menu, create_confirm_menu, get_cancel_button, is_admin
 from .export import register_export_handlers
 from config import ADMIN_ID
 
 def register_all_admin_handlers(bot, logger):
     """Регистрирует все админские обработчики"""
-    
-    def is_admin(user_id):
-        result = str(user_id) == str(ADMIN_ID)
-        logger.info(f"Admin check: user_id={user_id}, ADMIN_ID={ADMIN_ID}, result={result}")
-        return result
     
     # Обработчик для команды /admin
     @bot.message_handler(commands=['admin'])

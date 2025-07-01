@@ -29,5 +29,5 @@ def sanitize_text(text):
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     return text.strip()
 
-def is_admin(user_id):
-    return str(user_id) == str(ADMIN_ID) 
+# def is_admin(user_id):
+#     return str(user_id) == str(ADMIN_ID) 

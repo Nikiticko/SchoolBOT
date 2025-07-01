@@ -4,11 +4,9 @@ from config import ADMIN_ID
 import openpyxl
 import os
 from datetime import datetime
+from utils.menu import is_admin
 
 def register_export_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(func=lambda m: m.text == "⬇️ Выгрузить данные" and is_admin(m.from_user.id))
     def handle_export_data(message):
         markup = types.InlineKeyboardMarkup()

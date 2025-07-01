@@ -1,14 +1,11 @@
 from telebot import types
 from data.db import get_pending_applications, clear_applications, update_application_lesson, get_application_by_id, format_date_for_display
-from utils.menu import get_admin_menu
+from utils.menu import get_admin_menu, is_admin
 from config import ADMIN_ID
 from utils.security_logger import security_logger
 from handlers.admin_actions import register_admin_actions
 
 def register_applications_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(commands=["ClearApplications"])
     def handle_clear_command(message):
         if not is_admin(message.from_user.id):

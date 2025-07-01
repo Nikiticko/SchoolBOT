@@ -1,13 +1,10 @@
 from telebot import types
 from data.db import get_all_courses, add_course, delete_course, update_course, toggle_course_active
 from config import ADMIN_ID
-from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action, get_course_editor_menu
+from utils.menu import get_admin_menu, get_cancel_button, handle_cancel_action, get_course_editor_menu, is_admin
 from utils.security_logger import security_logger
 
 def register_courses_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
     def handle_course_menu(message):
         try:

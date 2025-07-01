@@ -6,7 +6,7 @@ from state.users import (
     get_registration_stage, update_registration_stage, 
     get_registration_start_time, cleanup_expired_registrations, clear_user_data
 )
-from utils.menu import get_main_menu, get_admin_menu, get_cancel_button, handle_cancel_action, get_appropriate_menu
+from utils.menu import get_main_menu, get_admin_menu, get_cancel_button, handle_cancel_action, get_appropriate_menu, is_admin
 from data.db import (
     add_application,
     get_application_by_tg_id,
@@ -471,7 +471,3 @@ def register_handlers(bot):
     """Регистрация обработчиков регистрации"""
     logger = setup_logger('registration')
     register(bot, logger)
-
-
-def is_admin(user_id):
-    return str(user_id) == str(ADMIN_ID)

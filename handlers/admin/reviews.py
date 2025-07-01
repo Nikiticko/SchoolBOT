@@ -2,11 +2,9 @@ from telebot import types
 from data.db import get_all_reviews, clear_reviews, get_review_stats
 from config import ADMIN_ID
 from utils.security_logger import security_logger
+from utils.menu import is_admin
 
 def register_reviews_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(func=lambda m: m.text == "📊 Статистика отзывов" and str(m.from_user.id) == str(ADMIN_ID))
     def handle_admin_reviews(message):
         stats = get_review_stats()

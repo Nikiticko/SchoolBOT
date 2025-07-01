@@ -2,11 +2,9 @@ from telebot import types
 from data.db import get_all_archive, clear_archive, format_date_for_display
 from config import ADMIN_ID
 from utils.security_logger import security_logger
+from utils.menu import is_admin
 
 def register_archive_handlers(bot, logger):
-    def is_admin(user_id):
-        return str(user_id) == str(ADMIN_ID)
-
     @bot.message_handler(commands=["ClearArchive"])
     def handle_clear_archive_command(message):
         if not is_admin(message.from_user.id):
