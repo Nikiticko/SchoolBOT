@@ -122,7 +122,8 @@ def register(bot, logger):
         chat_id = call.message.chat.id
         field = call.data.split(":")[1]
         
-        if chat_id not in get_user_data() or not get_user_data()[chat_id].get("edit_app"):
+        user_data = get_user_data(chat_id)
+        if not user_data or not user_data.get("edit_app"):
             bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             return
         
@@ -148,11 +149,12 @@ def register(bot, logger):
         
         chat_id = message.chat.id
         
-        if chat_id not in get_user_data() or not get_user_data()[chat_id].get("edit_app"):
+        user_data = get_user_data(chat_id)
+        if not user_data or not user_data.get("edit_app"):
             bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             return
         
-        field = get_user_data()[chat_id].get("editing_field")
+        field = get_user_data(chat_id).get("editing_field")
         new_value = message.text.strip()
         
         if not new_value:
@@ -164,7 +166,7 @@ def register(bot, logger):
         clear_user_data(chat_id, "editing_field")
         
         # Показываем обновленные данные
-        app_data = get_user_data()[chat_id]
+        app_data = get_user_data(chat_id)
         msg = (
             f"✅ Обновленные данные:\n"
             f"👤 Родитель: {app_data['parent_name']}\n"
@@ -192,12 +194,13 @@ def register(bot, logger):
         
         chat_id = call.message.chat.id
         
-        if chat_id not in get_user_data() or not get_user_data()[chat_id].get("edit_app"):
+        user_data = get_user_data(chat_id)
+        if not user_data or not user_data.get("edit_app"):
             bot.send_message(chat_id, "❌ Данные для редактирования не найдены.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
             return
         
         try:
-            app_data = get_user_data()[chat_id]
+            app_data = get_user_data(chat_id)
             update_application(
                 app_data["app_id"],
                 app_data["parent_name"],
@@ -290,7 +293,7 @@ def register(bot, logger):
             clear_user_data(chat_id)
             return
         
-        reason = get_user_data().get(chat_id, {}).get("cancel_reason", "")
+        reason = get_user_data(chat_id).get("cancel_reason", "")
         
         try:
             # Архивируем заявку
@@ -389,7 +392,7 @@ def register(bot, logger):
             clear_user_data(chat_id)
             return
         
-        reason = get_user_data().get(chat_id, {}).get("cancel_lesson_reason", "")
+        reason = get_user_data(chat_id).get("cancel_lesson_reason", "")
         
         try:
             # Архивируем заявку
@@ -455,37 +458,79 @@ def register(bot, logger):
             bot.send_message(chat_id, "Обращение отменено.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
             clear_user_data(chat_id)
             return
-        # Определяем контакт
-        contact = f"@{user.username}" if user.username else (get_user_data().get(chat_id, {}).get("phone") or str(chat_id))
-        # Определяем вложение
+        contact = f"@{user.username}" if user.username else (get_user_data(chat_id).get("phone") or str(chat_id))
+        allowed_types = ["photo", "document", "audio", "voice", "video_note", "sticker"]
+        forbidden_types = ["video", "animation"]
+        # Проверка на media_group (альбом)
+        if hasattr(message, 'media_group_id') and message.media_group_id:
+            bot.send_message(chat_id, "🚫 Можно прикрепить только одно вложение. Пожалуйста, отправьте только один файл или фото.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+            clear_user_data(chat_id)
+            return
+        # Проверка: сколько типов вложений присутствует
+        present_types = 0
         file_id = None
         file_type = None
         if message.content_type == 'photo':
             file_id = message.photo[-1].file_id
             file_type = 'photo'
-        elif message.content_type == 'document':
+            present_types += 1
+        if message.content_type == 'document':
             file_id = message.document.file_id
             file_type = 'document'
-        elif message.content_type == 'voice':
+            present_types += 1
+        if message.content_type == 'voice':
             file_id = message.voice.file_id
             file_type = 'voice'
-        elif message.content_type == 'video':
-            file_id = message.video.file_id
-            file_type = 'video'
-        elif message.content_type == 'video_note':
+            present_types += 1
+        if message.content_type == 'audio':
+            file_id = message.audio.file_id
+            file_type = 'audio'
+            present_types += 1
+        if message.content_type == 'video_note':
             file_id = message.video_note.file_id
             file_type = 'video_note'
-        # Сохраняем обращение
+            present_types += 1
+        if message.content_type == 'sticker':
+            file_id = message.sticker.file_id
+            file_type = 'sticker'
+            present_types += 1
+        if message.content_type in forbidden_types:
+            bot.send_message(chat_id, "🚫 Видео и GIF (анимированные изображения) запрещены. Прикрепите другой тип файла.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+            clear_user_data(chat_id)
+            return
+        # Если больше одного типа вложения — отказ
+        if present_types > 1:
+            bot.send_message(chat_id, "🚫 Можно прикрепить только одно вложение. Пожалуйста, отправьте только один файл или фото.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+            clear_user_data(chat_id)
+            return
+        msg_text = ""
         if file_id:
-            msg_text = f"[Вложение: {file_type}, file_id: {file_id}]\n" + (message.caption or "")
-        else:
-            msg_text = message.text or "(без текста)"
+            msg_text += f"[Вложение: {file_type}, file_id: {file_id}]\n"
+        if hasattr(message, 'caption') and message.caption:
+            msg_text += message.caption
+        elif hasattr(message, 'text') and message.text and message.content_type == 'text':
+            msg_text += message.text
+        if not msg_text.strip():
+            bot.send_message(chat_id, "Пожалуйста, опишите ваш вопрос или прикрепите файл.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
+            return
         contact_id = add_contact(str(chat_id), contact, msg_text)
         bot.send_message(chat_id, "✅ Ваше обращение отправлено админу. Ожидайте ответа.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
-        # Уведомление админу
-        admin_msg = f"🆘 Новое обращение от пользователя {contact}\nID: {chat_id}\n\nТекст: {msg_text}\n\nДля ответа используйте меню обращений."
+        # Формируем admin_msg с четким разделением вложения и текста
+        if file_id:
+            admin_msg = (
+                f"🆘 Новое обращение от пользователя {contact}\nID: {chat_id}\n\n"
+                f"Вложение: [{file_type}, file_id: {file_id}]\n"
+            )
+            text_only = msg_text.replace(f"[Вложение: {file_type}, file_id: {file_id}]\n", "").strip()
+            if text_only:
+                admin_msg += f"\nТекст обращения:\n{text_only}\n"
+        else:
+            admin_msg = (
+                f"🆘 Новое обращение от пользователя {contact}\nID: {chat_id}\n\n"
+                f"Текст обращения:\n{msg_text.strip()}\n"
+            )
+        admin_msg += "\nДля ответа используйте меню обращений."
         bot.send_message(ADMIN_ID, admin_msg)
-        # Пересылаем вложение админу, если есть
         if file_id:
             if file_type == 'photo':
                 bot.send_photo(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
@@ -493,16 +538,20 @@ def register(bot, logger):
                 bot.send_document(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
             elif file_type == 'voice':
                 bot.send_voice(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
-            elif file_type == 'video':
-                bot.send_video(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
+            elif file_type == 'audio':
+                bot.send_audio(ADMIN_ID, file_id, caption=f"Обращение #{contact_id} от {contact}")
             elif file_type == 'video_note':
                 bot.send_video_note(ADMIN_ID, file_id)
+                bot.send_message(ADMIN_ID, f"Обращение #{contact_id} от {contact}")
+            elif file_type == 'sticker':
+                bot.send_sticker(ADMIN_ID, file_id)
+                bot.send_message(ADMIN_ID, f"Обращение #{contact_id} от {contact}")
         clear_user_data(chat_id)
 
     @bot.message_handler(func=lambda m: m.text == "ℹ️ О преподавателе")
     def handle_about_teacher(message):
         text = (
-            "👩‍🏫 <b>О преподавателе</b>\n\n"
+            "👩‍ <b>О преподавателе</b>\n\n"
             "Меня зовут Никита, я профессиональный преподаватель с большим опытом работы.\n"
             "Провожу индивидуальные и групповые занятия для детей и взрослых.\n\n"
             "📚 Использую современные методики и индивидуальный подход к каждому ученику.\n"
@@ -568,3 +617,17 @@ def register(bot, logger):
             bot.send_message(message.chat.id, msg, reply_markup=get_appropriate_menu(message.from_user.id))
         except Exception as e:
             bot.send_message(message.chat.id, "⚠️ Произошла ошибка. Попробуйте позже.")
+
+    @bot.message_handler(commands=["start"])
+    @error_handler()
+    def handle_start(message):
+        security_ok, error_msg = check_user_security(message.from_user.id, "start")
+        if not security_ok:
+            bot.send_message(message.chat.id, f"🚫 {error_msg}")
+            return
+        bot.send_message(
+            message.chat.id,
+            "👋 Добро пожаловать! Я бот для записи на занятия. Используйте меню для навигации.",
+            reply_markup=menu.get_appropriate_menu(message.from_user.id)
+        )
+        log_user_action(logger, message.from_user.id, "start")

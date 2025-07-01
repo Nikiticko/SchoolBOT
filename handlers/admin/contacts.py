@@ -4,6 +4,7 @@ from config import ADMIN_ID
 from utils.security_logger import security_logger
 from utils.menu import get_admin_menu, is_admin
 from state.users import user_data
+import re
 
 def register_contacts_handlers(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "📨 Обращения пользователей" and is_admin(m.from_user.id))
@@ -18,18 +19,31 @@ def register_contacts_handlers(bot, logger):
             for contact in contacts:
                 contact_id, tg_id, user_contact, contact_text, admin_reply, status, contact_time, reply_at, banned, ban_reason = contact
                 
-                msg = f"📨 Обращение #{contact_id}\n"
-                msg += f"👤 Пользователь: {tg_id}\n"
-                msg += f"📞 Контакт: {user_contact or 'не указан'}\n"
-                msg += f"📅 Время: {contact_time}\n"
-                msg += f"📝 Текст: {contact_text}\n"
-                msg += f"📊 Статус: {status}"
-                
-                # Проверяем, заблокирован ли пользователь
-                if is_user_banned(tg_id):
-                    msg += f"\n🚫 Пользователь заблокирован"
-                    if ban_reason:
-                        msg += f" (причина: {ban_reason})"
+                # Формируем визуально разделённое сообщение
+                match = re.search(r'\[Вложение: (\w+), file_id: ([\w-]+)\]', contact_text)
+                if match:
+                    file_type, file_id = match.group(1), match.group(2)
+                    # Убираем строку вложения из текста
+                    text_only = contact_text.replace(match.group(0), '').strip()
+                    msg = (
+                        f"📨 Обращение #{contact_id}\n"
+                        f"👤 Пользователь: {tg_id}\n"
+                        f"📞 Контакт: {user_contact or 'не указан'}\n"
+                        f"📅 Время: {contact_time}\n"
+                        f"\n——— Вложение ———\n[{file_type}, file_id: {file_id}]\n"
+                    )
+                    if text_only:
+                        msg += f"\n——— Текст обращения ———\n{text_only}\n"
+                    msg += f"\n📊 Статус: {status}"
+                else:
+                    msg = (
+                        f"📨 Обращение #{contact_id}\n"
+                        f"👤 Пользователь: {tg_id}\n"
+                        f"📞 Контакт: {user_contact or 'не указан'}\n"
+                        f"📅 Время: {contact_time}\n"
+                        f"\n——— Текст обращения ———\n{contact_text.strip()}\n"
+                        f"\n📊 Статус: {status}"
+                    )
                 
                 # Создаем кнопки только для ожидающих ответа обращений
                 markup = types.InlineKeyboardMarkup()
@@ -42,6 +56,23 @@ def register_contacts_handlers(bot, logger):
                     markup.add(types.InlineKeyboardButton("✅ Пользователь заблокирован", callback_data="user_already_banned"))
                 
                 bot.send_message(message.chat.id, msg, reply_markup=markup)
+                # Если в тексте обращения есть вложение — отправить его админу
+                if match:
+                    try:
+                        if file_type == 'photo':
+                            bot.send_photo(message.chat.id, file_id)
+                        elif file_type == 'document':
+                            bot.send_document(message.chat.id, file_id)
+                        elif file_type == 'audio':
+                            bot.send_audio(message.chat.id, file_id)
+                        elif file_type == 'voice':
+                            bot.send_voice(message.chat.id, file_id)
+                        elif file_type == 'video_note':
+                            bot.send_video_note(message.chat.id, file_id)
+                        elif file_type == 'sticker':
+                            bot.send_sticker(message.chat.id, file_id)
+                    except Exception as e:
+                        bot.send_message(message.chat.id, f"⚠️ Не удалось отправить вложение: {e}")
             
             logger.info(f"Admin {message.from_user.id} viewed open contacts")
         except Exception as e:
@@ -218,7 +249,7 @@ def register_contacts_handlers(bot, logger):
             
             msg = f"💬 Ответ на обращение #{contact_id}\n"
             msg += f"👤 Пользователь: {tg_id}\n"
-            msg += f"�� Текст обращения: {contact_text}\n\n"
+            msg += f"📝 Текст обращения: {contact_text}\n\n"
             
             msg += "✍️ Введите ваш ответ или отправьте файл (фото, документ, голосовое, видео):\n\n"
             msg += "Для отмены нажмите '🔙 Отмена'"
@@ -237,101 +268,71 @@ def register_contacts_handlers(bot, logger):
     def process_contact_reply(message):
         if not is_admin(message.from_user.id):
             return
-        
         chat_id = message.chat.id
-        
         if chat_id not in user_data or not user_data[chat_id].get("replying_to_contact"):
             bot.send_message(chat_id, "❌ Данные для ответа не найдены.", reply_markup=get_admin_menu())
             return
-        
         if message.text == "🔙 Отмена":
             del user_data[chat_id]
             bot.send_message(chat_id, "❌ Ответ отменен.", reply_markup=get_admin_menu())
             return
-        
         try:
             contact_id = user_data[chat_id]["contact_id"]
             user_tg_id = user_data[chat_id]["user_tg_id"]
             contact_text = user_data[chat_id]["contact_text"]
-            
+            reply_text = message.text if message.content_type == 'text' else (message.caption or "")
+            # Определяем вложение
+            file_id = None
+            file_type = None
+            if message.content_type == 'photo':
+                file_id = message.photo[-1].file_id
+                file_type = 'photo'
+            elif message.content_type == 'document':
+                file_id = message.document.file_id
+                file_type = 'document'
+            elif message.content_type == 'voice':
+                file_id = message.voice.file_id
+                file_type = 'voice'
+            elif message.content_type == 'audio':
+                file_id = message.audio.file_id
+                file_type = 'audio'
+            elif message.content_type == 'video_note':
+                file_id = message.video_note.file_id
+                file_type = 'video_note'
+            elif message.content_type == 'sticker':
+                file_id = message.sticker.file_id
+                file_type = 'sticker'
             # Отправляем ответ пользователю
-            reply_text = f"💬 Ответ на ваше обращение:\n\n{message.text}"
-            bot.send_message(user_tg_id, reply_text)
-            
-            # Обновляем обращение в БД
-            update_contact_reply(contact_id, message.text)
-            
-            # Очищаем данные
+            if file_id:
+                # Если вложение поддерживает caption
+                if file_type == 'photo':
+                    bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:")
+                    bot.send_photo(user_tg_id, file_id, caption=reply_text)
+                elif file_type == 'document':
+                    bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:")
+                    bot.send_document(user_tg_id, file_id, caption=reply_text)
+                elif file_type == 'audio':
+                    bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:")
+                    bot.send_audio(user_tg_id, file_id, caption=reply_text)
+                elif file_type == 'voice':
+                    bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:")
+                    bot.send_voice(user_tg_id, file_id, caption=reply_text)
+                elif file_type == 'video_note':
+                    bot.send_video_note(user_tg_id, file_id)
+                    if reply_text:
+                        bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:\n{reply_text}")
+                elif file_type == 'sticker':
+                    bot.send_sticker(user_tg_id, file_id)
+                    if reply_text:
+                        bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:\n{reply_text}")
+                update_contact_reply(contact_id, reply_text or f"[Файл отправлен: {message.content_type}]")
+            else:
+                # Только текст
+                bot.send_message(user_tg_id, f"💬 Ответ на ваше обращение:\n\n{reply_text}")
+                update_contact_reply(contact_id, reply_text)
             del user_data[chat_id]
-            
             bot.send_message(chat_id, "✅ Ответ отправлен пользователю!", reply_markup=get_admin_menu())
             logger.info(f"Admin {message.from_user.id} replied to contact {contact_id}")
-            
         except Exception as e:
             bot.send_message(chat_id, "❌ Ошибка при отправке ответа. Попробуйте позже.", reply_markup=get_admin_menu())
-            logger.error(f"Error sending contact reply: {e}")
-
-    @bot.message_handler(content_types=['photo', 'document', 'voice', 'video', 'video_note'])
-    def handle_media_contact_reply(message):
-        if not is_admin(message.from_user.id):
-            return
-        
-        chat_id = message.chat.id
-        
-        if chat_id not in user_data or not user_data[chat_id].get("replying_to_contact"):
-            return
-        
-        try:
-            contact_id = user_data[chat_id]["contact_id"]
-            user_tg_id = user_data[chat_id]["user_tg_id"]
-            contact_text = user_data[chat_id]["contact_text"]
-            
-            # Получаем file_id в зависимости от типа медиа
-            file_id = None
-            if message.photo:
-                file_id = message.photo[-1].file_id
-            elif message.document:
-                file_id = message.document.file_id
-            elif message.voice:
-                file_id = message.voice.file_id
-            elif message.video:
-                file_id = message.video.file_id
-            elif message.video_note:
-                file_id = message.video_note.file_id
-            
-            if not file_id:
-                bot.send_message(chat_id, "❌ Не удалось обработать файл.", reply_markup=get_admin_menu())
-                return
-            
-            # Отправляем медиа пользователю
-            reply_text = f"💬 Ответ на ваше обращение #{contact_id}:"
-            
-            try:
-                if message.photo:
-                    bot.send_photo(user_tg_id, file_id, caption=reply_text)
-                elif message.document:
-                    bot.send_document(user_tg_id, file_id, caption=reply_text)
-                elif message.voice:
-                    bot.send_voice(user_tg_id, file_id, caption=reply_text)
-                elif message.video:
-                    bot.send_video(user_tg_id, file_id, caption=reply_text)
-                elif message.video_note:
-                    bot.send_video_note(user_tg_id, file_id)
-                    bot.send_message(user_tg_id, reply_text)
-                
-                # Обновляем обращение в БД
-                update_contact_reply(contact_id, f"[Файл отправлен: {message.content_type}]")
-                
-                # Очищаем данные
-                del user_data[chat_id]
-                
-                bot.send_message(chat_id, "✅ Файл отправлен пользователю!", reply_markup=get_admin_menu())
-                logger.info(f"Admin {message.from_user.id} sent media reply to contact {contact_id}")
-                
-            except Exception as e:
-                bot.send_message(chat_id, f"❌ Не удалось отправить файл пользователю: {str(e)}", reply_markup=get_admin_menu())
-                logger.error(f"Error sending media to user: {e}")
-            
-        except Exception as e:
-            bot.send_message(chat_id, "❌ Ошибка при отправке файла. Попробуйте позже.", reply_markup=get_admin_menu())
-            logger.error(f"Error in handle_media_contact_reply: {e}") 
+            logger.error(f"Error sending contact reply: {e}") 
