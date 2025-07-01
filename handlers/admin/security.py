@@ -27,19 +27,23 @@ def register_security_handlers(bot, logger):
                 f"⏱️ Превышения rate limit: {report.get('rate_limit_exceeded', 0)}\n"
                 f"🚫 Заблокированные пользователи: {report.get('user_bans', 0)}\n"
                 f"🚪 Несанкционированный доступ: {report.get('unauthorized_access', 0)}\n"
-                f"❌ Ошибки валидации: {report.get('input_validation_failed', 0)}\n"
-                f"🛠️ Действия админа: {report.get('admin_actions', 0)}\n\n"
+                f"❌ Ошибки валидации: {report.get('input_validation_failed', 0)}\n\n"
                 "📊 Общая статистика безопасности:"
             )
             total_events = sum(report.values())
+            threat_level = None
             if total_events == 0:
                 report_text += "\n✅ Все спокойно, угроз не обнаружено"
+                threat_level = "none"
             elif total_events < 10:
                 report_text += "\n🟡 Низкий уровень угроз"
+                threat_level = "low"
             elif total_events < 50:
                 report_text += "\n🟠 Средний уровень угроз"
+                threat_level = "medium"
             else:
                 report_text += "\n🔴 Высокий уровень угроз!"
+                threat_level = "high"
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("⬇️ Выгрузить отчет (XLS)", callback_data="export_security_log"))
             bot.send_message(message.chat.id, report_text, reply_markup=markup)
@@ -49,6 +53,12 @@ def register_security_handlers(bot, logger):
                 message.from_user.username or "unknown",
                 "security_report_requested"
             )
+            # Уведомление админу о среднем/высоком уровне угроз
+            if threat_level in ("medium", "high"):
+                try:
+                    bot.send_message(ADMIN_ID, f"⚠️ Внимание! В системе зафиксирован {('средний' if threat_level=='medium' else 'высокий')} уровень угроз безопасности за последние 24 часа.")
+                except Exception as notify_err:
+                    logger.error(f"Не удалось отправить уведомление админу: {notify_err}")
         except Exception as e:
             bot.send_message(message.chat.id, f"❌ Ошибка при получении отчета безопасности: {str(e)}")
             logger.error(f"Error in security report: {e}")

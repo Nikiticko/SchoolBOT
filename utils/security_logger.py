@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 import openpyxl
 from openpyxl.styles import Font
 import re
+from config import ADMIN_ID
 
 class SecurityLogger:
     """Специализированный логгер для событий безопасности"""
@@ -130,7 +131,7 @@ class SecurityLogger:
             return "*" * len(value)
     
     def get_security_report(self, hours: int = 24) -> Dict[str, int]:
-        """Получение отчета по событиям безопасности за последние N часов"""
+        """Получение отчета по событиям безопасности за последние N часов (без действий админа)"""
         try:
             from datetime import datetime, timedelta
             cutoff_time = datetime.now() - timedelta(hours=hours)
@@ -140,8 +141,7 @@ class SecurityLogger:
                 "rate_limit_exceeded": 0,
                 "user_bans": 0,
                 "unauthorized_access": 0,
-                "input_validation_failed": 0,
-                "admin_actions": 0
+                "input_validation_failed": 0
             }
             if not os.path.exists(self.log_file):
                 return events
@@ -152,21 +152,23 @@ class SecurityLogger:
                         if len(parts) >= 3:
                             log_time_str = parts[0]
                             log_time = datetime.strptime(log_time_str, '%Y-%m-%d %H:%M:%S')
-                            if log_time >= cutoff_time:
-                                if "FAILED_LOGIN" in line:
-                                    events["failed_logins"] += 1
-                                if "SUSPICIOUS_ACTIVITY" in line:
-                                    events["suspicious_activities"] += 1
-                                if "RATE_LIMIT_EXCEEDED" in line:
-                                    events["rate_limit_exceeded"] += 1
-                                if "USER_BANNED" in line:
-                                    events["user_bans"] += 1
-                                if "UNAUTHORIZED_ACCESS" in line:
-                                    events["unauthorized_access"] += 1
-                                if "INPUT_VALIDATION_FAILED" in line:
-                                    events["input_validation_failed"] += 1
-                                if "ADMIN_ACTION" in line:
-                                    events["admin_actions"] += 1
+                            if log_time < cutoff_time:
+                                continue
+                            # Пропускаем действия админа
+                            if "ADMIN_ACTION" in line and f"Admin: {ADMIN_ID}" in line:
+                                continue
+                            if "FAILED_LOGIN" in line:
+                                events["failed_logins"] += 1
+                            if "SUSPICIOUS_ACTIVITY" in line:
+                                events["suspicious_activities"] += 1
+                            if "RATE_LIMIT_EXCEEDED" in line:
+                                events["rate_limit_exceeded"] += 1
+                            if "USER_BANNED" in line:
+                                events["user_bans"] += 1
+                            if "UNAUTHORIZED_ACCESS" in line:
+                                events["unauthorized_access"] += 1
+                            if "INPUT_VALIDATION_FAILED" in line:
+                                events["input_validation_failed"] += 1
                     except Exception as parse_error:
                         self.logger.debug(f"Error parsing log line: {parse_error}, Line: {line.strip()}")
                         continue
@@ -176,10 +178,7 @@ class SecurityLogger:
             return {}
     
     def export_security_log_to_xls(self, filepath: str, hours: int = 24) -> int:
-        """
-        Экспортирует события безопасности за последние N часов в XLS-файл.
-        Возвращает количество выгруженных событий.
-        """
+        """Экспортирует события безопасности за последние N часов в XLS-файл (без действий админа)"""
         from datetime import datetime, timedelta
         cutoff_time = datetime.now() - timedelta(hours=hours)
         events = []
@@ -192,25 +191,29 @@ class SecurityLogger:
                     if len(parts) >= 4:
                         log_time_str = parts[0]
                         log_time = datetime.strptime(log_time_str, '%Y-%m-%d %H:%M:%S')
-                        if log_time >= cutoff_time:
-                            event_type = parts[3].strip()
-                            details = ' - '.join(parts[4:]).strip() if len(parts) > 4 else ''
-                            # Пытаемся вытащить user_id и username
-                            user_id = ''
-                            username = ''
-                            m = re.search(r'User: (\d+)', details)
-                            if m:
-                                user_id = m.group(1)
-                            m2 = re.search(r'@([\w_]+)', details)
-                            if m2:
-                                username = m2.group(1)
-                            events.append([
-                                log_time.strftime('%Y-%m-%d %H:%M:%S'),
-                                event_type,
-                                user_id,
-                                username,
-                                details
-                            ])
+                        if log_time < cutoff_time:
+                            continue
+                        # Пропускаем действия админа
+                        if "ADMIN_ACTION" in line and f"Admin: {ADMIN_ID}" in line:
+                            continue
+                        event_type = parts[3].strip()
+                        details = ' - '.join(parts[4:]).strip() if len(parts) > 4 else ''
+                        # Пытаемся вытащить user_id и username
+                        user_id = ''
+                        username = ''
+                        m = re.search(r'User: (\d+)', details)
+                        if m:
+                            user_id = m.group(1)
+                        m2 = re.search(r'@([\w_]+)', details)
+                        if m2:
+                            username = m2.group(1)
+                        events.append([
+                            log_time.strftime('%Y-%m-%d %H:%M:%S'),
+                            event_type,
+                            user_id,
+                            username,
+                            details
+                        ])
                 except Exception as e:
                     continue
         # Создаем XLS
