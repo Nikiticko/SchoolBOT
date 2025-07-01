@@ -71,7 +71,8 @@ def register_security_handlers(bot, logger):
                 bot.send_message(call.message.chat.id, "Нет событий для выгрузки за последние 24 часа.")
             else:
                 with open(filepath, "rb") as f:
-                    bot.send_document(call.message.chat.id, f, caption=f"Событий: {count}")
+                    caption = f"🔒 Отчет безопасности ({count} событий)\n\n⚠️ <b>Внимание:</b> Файл будет автоматически удален через 24 часа\n💾 Сохраните его, если он вам нужен надолго"
+                    bot.send_document(call.message.chat.id, f, caption=caption, parse_mode="HTML")
                 os.remove(filepath)
         except Exception as e:
             bot.send_message(call.message.chat.id, f"❌ Ошибка при выгрузке отчета: {str(e)}") 

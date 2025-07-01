@@ -1,7 +1,13 @@
 import logging
 import os
 from datetime import datetime
-from config import LOG_LEVEL, LOG_FILE
+
+# Опциональный импорт config для случаев, когда dotenv недоступен
+try:
+    from config import LOG_LEVEL, LOG_FILE
+except ImportError:
+    LOG_LEVEL = "INFO"
+    LOG_FILE = "bot.log"
 
 def setup_logger(name='bot'):
     """Настройка логгера для бота"""

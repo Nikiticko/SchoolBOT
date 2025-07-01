@@ -16,6 +16,7 @@ from utils.exceptions import (
     TelegramAPIException, handle_exception
 )
 from state.state_manager import state_manager
+from utils.cleanup import auto_cleanup
 
 # Регистрация хендлеров
 from handlers import commands, registration, admin, reviews
@@ -97,6 +98,14 @@ try:
     logger.info("✅ Registration cleanup thread started")
 except Exception as e:
     error_msg = handle_exception(e, logger, "Registration cleanup startup")
+    logger.error(f"❌ {error_msg}")
+
+# Запуск автоочистки временных файлов
+try:
+    auto_cleanup.start_periodic_cleanup(interval_hours=6)  # Каждые 6 часов
+    logger.info("✅ Auto-cleanup thread started")
+except Exception as e:
+    error_msg = handle_exception(e, logger, "Auto-cleanup startup")
     logger.error(f"❌ {error_msg}")
 
 # Регистрация всех обработчиков

@@ -51,7 +51,8 @@ def register_export_handlers(bot, logger):
                 ws.append(list(row))
             wb.save(filename)
             with open(filename, "rb") as f:
-                bot.send_document(call.message.chat.id, f, caption=filename)
+                caption = f"📊 {filename}\n\n⚠️ <b>Внимание:</b> Файл будет автоматически удален через 24 часа\n💾 Сохраните его, если он вам нужен надолго"
+                bot.send_document(call.message.chat.id, f, caption=caption, parse_mode="HTML")
             os.remove(filename)
         except Exception as e:
             bot.send_message(call.message.chat.id, f"❌ Ошибка при экспорте: {str(e)}") 
