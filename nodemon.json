@@ -1,6 +1,0 @@
-{
-  "watch": ["*.py", "handlers/", "data/", "utils/", "services/", "state/"],
-  "ext": "py,json",
-  "exec": "C:/Users/nikit/AppData/Local/Programs/Python/Python313/python.exe bot.py",
-  "ignore": ["__pycache__/", "*.pyc", "*.pyo", "*.pyd", ".git/", "*.log"]
-} 
