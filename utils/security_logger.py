@@ -7,13 +7,43 @@ from openpyxl.styles import Font
 import re
 from config import ADMIN_ID
 
+def rotate_security_log(log_file_path, max_size_mb=1):
+    """Ротация security лог-файла при достижении максимального размера"""
+    try:
+        if not os.path.exists(log_file_path):
+            return
+        
+        # Проверяем размер файла в МБ
+        file_size_mb = os.path.getsize(log_file_path) / (1024 * 1024)
+        
+        if file_size_mb >= max_size_mb:
+            # Создаем имя для архива с датой
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            archive_name = f"{log_file_path}.{timestamp}"
+            
+            # Переименовываем текущий файл
+            os.rename(log_file_path, archive_name)
+            
+            # Создаем новый пустой файл
+            with open(log_file_path, 'w', encoding='utf-8') as f:
+                pass
+            
+            print(f"📁 Security лог-файл ротирован: {log_file_path} → {archive_name} ({file_size_mb:.2f} МБ)")
+            
+    except Exception as e:
+        print(f"❌ Ошибка ротации security лог-файла: {e}")
+
 class SecurityLogger:
     """Специализированный логгер для событий безопасности"""
     
-    def __init__(self, log_file: str = "security.log"):
+    def __init__(self, log_file: str = "security.log"): 
         self.log_file = log_file
+        
+        # Ротируем security лог-файл если он слишком большой
+        rotate_security_log(self.log_file, max_size_mb=1)
+        
         self.logger = self._setup_security_logger()
-    
+     
     def _setup_security_logger(self) -> logging.Logger:
         """Настройка логгера безопасности"""
         logger = logging.getLogger('security')

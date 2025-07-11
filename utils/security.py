@@ -99,6 +99,9 @@ class SecurityManager:
             if current_time - timestamp < 60
         ]
         
+        # Сохраняем очищенные данные обратно в StateManager
+        state_manager.set_rate_limit_data(user_id, rate_limit_data)
+        
         # Проверяем лимит
         if len(rate_limit_data) >= RATE_LIMIT_PER_MINUTE:
             remaining_time = int(60 - (current_time - rate_limit_data[0]))
@@ -315,4 +318,31 @@ def log_security_event(user_id: int, username: str, event_type: str, details: Di
     try:
         security_logger.log_security_event(user_id, username, event_type, details or {})
     except Exception as e:
-        log_error(security_logger, e, f"Security event logging error for user {user_id}") 
+        log_error(security_logger, e, f"Security event logging error for user {user_id}")
+
+def clear_old_rate_limit_data():
+    """Очищает старые rate limit данные для всех пользователей"""
+    try:
+        import time
+        current_time = time.time()
+        
+        # Получаем всех пользователей с rate limit данными
+        all_users = list(state_manager._state["rate_limit_data"].keys())
+        
+        for user_id_str in all_users:
+            user_id = int(user_id_str)
+            rate_limit_data = state_manager.get_rate_limit_data(user_id)
+            
+            # Удаляем старые записи (старше 1 минуты)
+            cleaned_data = [
+                timestamp for timestamp in rate_limit_data
+                if current_time - timestamp < 60
+            ]
+            
+            # Сохраняем очищенные данные
+            state_manager.set_rate_limit_data(user_id, cleaned_data)
+        
+        print("✅ Старые rate limit данные очищены")
+        
+    except Exception as e:
+        print(f"❌ Ошибка при очистке rate limit данных: {e}") 

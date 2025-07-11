@@ -9,8 +9,37 @@ except ImportError:
     LOG_LEVEL = "INFO"
     LOG_FILE = "bot.log"
 
+def rotate_log_file(log_file_path, max_size_mb=1):
+    """Ротация лог-файла при достижении максимального размера"""
+    try:
+        if not os.path.exists(log_file_path):
+            return
+        
+        # Проверяем размер файла в МБ
+        file_size_mb = os.path.getsize(log_file_path) / (1024 * 1024)
+        
+        if file_size_mb >= max_size_mb:
+            # Создаем имя для архива с датой
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            archive_name = f"{log_file_path}.{timestamp}"
+            
+            # Переименовываем текущий файл
+            os.rename(log_file_path, archive_name)
+            
+            # Создаем новый пустой файл
+            with open(log_file_path, 'w', encoding='utf-8') as f:
+                pass
+            
+            print(f"📁 Лог-файл ротирован: {log_file_path} → {archive_name} ({file_size_mb:.2f} МБ)")
+            
+    except Exception as e:
+        print(f"❌ Ошибка ротации лог-файла: {e}")
+
 def setup_logger(name='bot'):
     """Настройка логгера для бота"""
+    
+    # Ротируем лог-файл если он слишком большой
+    rotate_log_file(LOG_FILE, max_size_mb=1)
     
     # Создаем директорию для логов если её нет
     log_dir = os.path.dirname(LOG_FILE)

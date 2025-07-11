@@ -105,9 +105,56 @@ except Exception as e:
 try:
     auto_cleanup.start_periodic_cleanup(interval_hours=6)  # Каждые 6 часов
     logger.info("✅ Auto-cleanup thread started")
+    
+    # Системные события
+    logger.info("🔄 Auto-cleanup started (every 6 hours)")
+    
 except Exception as e:
     error_msg = handle_exception(e, logger, "Auto-cleanup startup")
     logger.error(f"❌ {error_msg}")
+
+# Функция для периодического логирования статистики
+def log_system_stats():
+    """Периодически логирует статистику системы"""
+    import time
+    import psutil
+    from data.db import get_pending_applications, get_assigned_applications
+    
+    while True:
+        try:
+            time.sleep(3600)  # Каждые 60 минут
+            
+            # Статистика БД
+            pending_apps = len(get_pending_applications())
+            assigned_apps = len(get_assigned_applications())
+            
+            # Статистика системы
+            memory_usage = psutil.Process().memory_info().rss / 1024 / 1024  # МБ
+            cpu_percent = psutil.Process().cpu_percent()
+            
+            # Логирование статистики
+            logger.info(f"📊 System stats: {pending_apps} pending, {assigned_apps} assigned applications")
+            logger.info(f"💾 Memory usage: {memory_usage:.1f} MB, CPU: {cpu_percent:.1f}%")
+            logger.info(f"📊 Daily stats: {pending_apps + assigned_apps} total applications in system")
+            
+        except Exception as e:
+            logger.error(f"Error in system stats logging: {e}")
+
+# Запуск логирования статистики в отдельном потоке
+try:
+    stats_thread = threading.Thread(target=log_system_stats, daemon=True)
+    stats_thread.start()
+    logger.info("✅ System stats logging thread started")
+except Exception as e:
+    logger.error(f"❌ Failed to start stats logging: {e}")
+
+# Очистка старых rate limit данных при запуске
+try:
+    from utils.security import clear_old_rate_limit_data
+    clear_old_rate_limit_data()
+    logger.info("✅ Old rate limit data cleared")
+except Exception as e:
+    logger.warning(f"⚠️ Failed to clear old rate limit data: {e}")
 
 # Регистрация всех обработчиков
 try:

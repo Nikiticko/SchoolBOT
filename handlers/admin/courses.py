@@ -7,9 +7,22 @@ from utils.security_logger import security_logger
 def register_courses_handlers(bot, logger):
     @bot.message_handler(func=lambda m: m.text == "📚 Редактировать курсы" and is_admin(m.from_user.id))
     def handle_course_menu(message):
+        import time
+        start_time = time.time()
+        
         try:
             bot.send_message(message.chat.id, "🔧 Меню управления курсами", reply_markup=get_course_editor_menu())
-            logger.info(f"Admin {message.from_user.id} opened course editor menu")
+            
+            # Логирование админских действий
+            logger.info(f"🔧 Admin {message.from_user.id} opened course editor menu")
+            
+            # Логирование производительности
+            response_time = time.time() - start_time
+            logger.info(f"⏱️ Admin handler response time: {response_time:.3f}s (course editor menu)")
+            
+            # Бизнес-метрики
+            logger.info(f"📊 Admin activity: admin {message.from_user.id} accessed course management")
+            
         except Exception as e:
             logger.error(f"Error in handle_course_menu: {e}")
 
@@ -36,6 +49,9 @@ def register_courses_handlers(bot, logger):
             logger.error(f"Error in get_course_name: {e}")
 
     def save_new_course(message, bot, name):
+        import time
+        start_time = time.time()
+        
         try:
             # Проверяем отмену
             if message.text == "🔙 Отмена":
@@ -45,7 +61,20 @@ def register_courses_handlers(bot, logger):
             try:
                 add_course(name, desc)
                 bot.send_message(message.chat.id, f"✅ Курс «{name}» добавлен.", reply_markup=get_course_editor_menu())
-                logger.info(f"Admin {message.from_user.id} added new course: {name}")
+                
+                # Логирование админских действий
+                logger.info(f"🔧 Admin {message.from_user.id} added new course: {name}")
+                
+                # Логирование производительности
+                response_time = time.time() - start_time
+                logger.info(f"⏱️ Admin handler response time: {response_time:.3f}s (add course)")
+                
+                # Бизнес-метрики
+                logger.info(f"📊 Course management: new course '{name}' added by admin {message.from_user.id}")
+                
+                # Системные события
+                logger.info(f"📊 Course added: '{name}' with description length {len(desc)} characters")
+                
             except Exception as e:
                 bot.send_message(message.chat.id, "❌ Не удалось добавить курс. Попробуйте позже.")
                 logger.error(f"Error adding course: {e}")

@@ -14,9 +14,7 @@ from data.db import (
     get_archive_count_by_tg_id,
     format_date_for_display,
     get_cancelled_count_by_tg_id,
-    get_finished_count_by_tg_id,
-    is_user_banned,
-    get_ban_reason
+    get_finished_count_by_tg_id
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from utils.security import check_user_security, validate_user_input, security_manager

@@ -50,10 +50,24 @@ def register_applications_handlers(bot, logger):
 
     @bot.message_handler(func=lambda m: m.text == "📋 Список заявок" and is_admin(m.from_user.id))
     def handle_pending_applications(message):
+        import time
+        start_time = time.time()
+        
         applications = get_pending_applications()
         if not applications:
             bot.send_message(message.chat.id, "✅ Нет заявок без назначенной даты")
+            
+            # Логирование админских действий
+            logger.info(f"🔧 Admin {message.from_user.id} viewed empty applications list")
+            
+            # Логирование производительности
+            response_time = time.time() - start_time
+            logger.info(f"⏱️ Admin handler response time: {response_time:.3f}s (view applications)")
+            
+            # Бизнес-метрики
+            logger.info(f"📊 Admin activity: admin {message.from_user.id} viewed applications (0 pending)")
             return
+            
         for app in applications:
             app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = app
             formatted_created = format_date_for_display(created_at)
@@ -71,7 +85,19 @@ def register_applications_handlers(bot, logger):
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("🕒 Назначить", callback_data=f"assign:{app_id}"))
             bot.send_message(message.chat.id, text, reply_markup=markup)
-        logger.info(f"Admin {message.from_user.id} viewed pending applications")
+        
+        # Логирование админских действий
+        logger.info(f"🔧 Admin {message.from_user.id} viewed {len(applications)} pending applications")
+        
+        # Логирование производительности
+        response_time = time.time() - start_time
+        logger.info(f"⏱️ Admin handler response time: {response_time:.3f}s (view {len(applications)} applications)")
+        
+        # Бизнес-метрики
+        logger.info(f"📊 Admin activity: admin {message.from_user.id} viewed applications ({len(applications)} pending)")
+        
+        # Системные события
+        logger.info(f"📊 Applications status: {len(applications)} pending applications in system")
 
     # Регистрируем все хендлеры из admin_actions.py (назначение, завершение, отмена, перенос и т.д.)
     register_admin_actions(bot, logger) 

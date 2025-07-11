@@ -2,7 +2,7 @@
 from telebot import types
 import utils.menu as menu
 from data.db import (
-    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, is_user_banned, get_last_contact_time, add_contact, get_ban_reason, update_application, delete_application_by_tg_id, get_reviews_for_publication_with_deleted
+    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, get_last_contact_time, add_contact, update_application, delete_application_by_tg_id, get_reviews_for_publication_with_deleted
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from state.users import get_user_data, set_user_data, update_user_data, clear_user_data
@@ -21,6 +21,9 @@ def register(bot, logger):
     @bot.message_handler(commands=["help"])
     @error_handler()
     def handle_help(message):
+        import time
+        start_time = time.time()
+        
         # Проверка безопасности
         security_ok, error_msg = check_user_security(message.from_user.id, "help")
         if not security_ok:
@@ -51,22 +54,69 @@ def register(bot, logger):
             "• '📚 Доступные курсы' - список курсов"
         )
         
-        bot.send_message(message.chat.id, help_text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(message.from_user.id))
-        log_user_action(logger, message.from_user.id, "help")
+        bot.send_message(message.chat.id, help_text, parse_mode="HTML")
+        
+        # Логирование активности пользователя
+        log_user_action(logger, message.from_user.id, "HELP_COMMAND", f"Username: {message.from_user.username}")
+        
+        # Логирование производительности
+        response_time = time.time() - start_time
+        logger.info(f"⏱️ Handler response time: {response_time:.3f}s (help command)")
 
     @bot.message_handler(func=lambda m: m.text == "📅 Мое занятие")
     @error_handler()
     def handle_my_lesson(message):
-        chat_id = message.chat.id
+        import time
+        start_time = time.time()
         
         # Проверка безопасности
         security_ok, error_msg = check_user_security(message.from_user.id, "my_lesson")
         if not security_ok:
-            bot.send_message(chat_id, f"🚫 {error_msg}")
+            bot.send_message(message.chat.id, f"🚫 {error_msg}")
             return
         
-        bot.send_message(chat_id, "Функция просмотра занятия временно недоступна или в разработке.", reply_markup=menu.get_appropriate_menu(message.from_user.id))
-        log_user_action(logger, message.from_user.id, "my_lesson")
+        chat_id = message.chat.id
+        user = message.from_user
+        
+        # Проверяем, есть ли заявка у пользователя
+        application = get_application_by_tg_id(str(chat_id))
+        
+        if not application:
+            bot.send_message(chat_id, "📝 У вас нет активной заявки. Запишитесь на занятие!", reply_markup=menu.get_appropriate_menu(user.id))
+            log_user_action(logger, user.id, "MY_LESSON_NO_APPLICATION", "No active application found")
+            return
+        
+        app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = application
+        
+        if not lesson_date:
+            bot.send_message(chat_id, "⏳ Ваша заявка обрабатывается. Ожидайте назначения даты занятия.", reply_markup=menu.get_appropriate_menu(user.id))
+            log_user_action(logger, user.id, "MY_LESSON_PENDING", f"Course: {course}, Status: {status}")
+            return
+        
+        # Форматируем дату для отображения
+        formatted_date = format_date_for_display(lesson_date)
+        
+        # Формируем сообщение
+        lesson_text = (
+            f"📅 <b>Ваше занятие:</b>\n\n"
+            f"👤 <b>Ученик:</b> {student_name}\n"
+            f"📘 <b>Курс:</b> {course}\n"
+            f"📅 <b>Дата:</b> {formatted_date}\n"
+            f"🔗 <b>Ссылка:</b> {lesson_link}\n\n"
+            f"📝 <b>Статус:</b> {status}"
+        )
+        
+        bot.send_message(chat_id, lesson_text, parse_mode="HTML", reply_markup=menu.get_appropriate_menu(user.id))
+        
+        # Логирование активности пользователя
+        log_user_action(logger, user.id, "MY_LESSON_VIEWED", f"Course: {course}, Date: {formatted_date}")
+        
+        # Логирование производительности
+        response_time = time.time() - start_time
+        logger.info(f"⏱️ Handler response time: {response_time:.3f}s (my_lesson command)")
+        
+        # Бизнес-метрики
+        logger.info(f"📊 Lesson viewed: user {user.id} viewed lesson for course {course}")
 
     @bot.callback_query_handler(func=lambda c: c.data == "edit_application")
     def handle_edit_application(call):
@@ -429,16 +479,15 @@ def register(bot, logger):
 
     @bot.message_handler(func=lambda m: m.text == "🆘 Обратиться к админу")
     def handle_contact_admin(message):
-        from data.db import is_user_banned, get_last_contact_time, add_contact
+        from data.db import get_last_contact_time, add_contact
         import datetime
         chat_id = message.chat.id
         user = message.from_user
-        if is_user_banned(str(chat_id)):
-            reason = get_ban_reason(str(chat_id))
-            msg = "🚫 Вы заблокированы и не можете отправлять обращения."
-            if reason:
-                msg += f"\nПричина: {reason}"
-            bot.send_message(chat_id, msg, reply_markup=menu.get_appropriate_menu(message.from_user.id))
+        
+        # Проверка безопасности (единая система)
+        security_ok, error_msg = check_user_security(message.from_user.id, "contact_admin")
+        if not security_ok:
+            bot.send_message(message.chat.id, f"🚫 {error_msg}")
             return
         last_time = get_last_contact_time(str(chat_id))
         if last_time:
@@ -621,13 +670,26 @@ def register(bot, logger):
     @bot.message_handler(commands=["start"])
     @error_handler()
     def handle_start(message):
+        import time
+        start_time = time.time()
+        
         security_ok, error_msg = check_user_security(message.from_user.id, "start")
         if not security_ok:
             bot.send_message(message.chat.id, f"🚫 {error_msg}")
             return
+        
         bot.send_message(
             message.chat.id,
             "👋 Добро пожаловать! Я бот для записи на занятия. Используйте меню для навигации.",
             reply_markup=menu.get_appropriate_menu(message.from_user.id)
         )
-        log_user_action(logger, message.from_user.id, "start")
+        
+        # Логирование активности пользователя
+        log_user_action(logger, message.from_user.id, "START_COMMAND", f"Username: {message.from_user.username}")
+        
+        # Логирование производительности
+        response_time = time.time() - start_time
+        logger.info(f"⏱️ Handler response time: {response_time:.3f}s (start command)")
+        
+        # Бизнес-метрики
+        logger.info(f"📊 User activity: new user {message.from_user.id} started bot")

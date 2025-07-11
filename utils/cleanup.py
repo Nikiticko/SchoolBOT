@@ -28,6 +28,7 @@ class AutoCleanup:
             "database.db",      # Основная БД
             "state.json",       # Текущее состояние
             "bot.log",          # Текущий лог
+            "security.log",     # Текущий security лог
             "config.env",       # Конфигурация
             "requirements.txt", # Зависимости
         ]
