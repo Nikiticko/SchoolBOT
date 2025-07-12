@@ -55,3 +55,25 @@ MAX_NAME_LENGTH = int(os.getenv("MAX_NAME_LENGTH", "50"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
 BAN_THRESHOLD = int(os.getenv("BAN_THRESHOLD", "5"))
 
+# Проверяем наличие всех критических переменных при импорте
+def validate_all_config():
+    """Проверяет все критические настройки"""
+    required_vars = {
+        "API_TOKEN": API_TOKEN,
+        "ADMIN_ID": ADMIN_ID,
+        "DB_NAME": DB_NAME
+    }
+    
+    missing_vars = []
+    for var_name, var_value in required_vars.items():
+        if not var_value:
+            missing_vars.append(var_name)
+    
+    if missing_vars:
+        raise ValueError(f"❌ КРИТИЧЕСКАЯ ОШИБКА: Отсутствуют обязательные переменные: {', '.join(missing_vars)}")
+    
+    print("✅ Все критические настройки проверены")
+
+# Выполняем проверку при импорте модуля
+validate_all_config()
+

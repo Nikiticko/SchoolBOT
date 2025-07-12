@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime
 import re
+import os
 
 DB_NAME = "data/database.db"
 
@@ -54,6 +55,42 @@ def get_connection():
     print(f"🛠 Путь к базе, которую использует бот: {path}")
     return sqlite3.connect(DB_NAME)
 
+def check_database_integrity():
+    """
+    Проверяет целостность базы данных
+    Возвращает: (is_ok, error_message)
+    """
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Проверяем целостность БД
+            cursor.execute("PRAGMA integrity_check")
+            result = cursor.fetchone()
+            
+            if result[0] != "ok":
+                return False, f"Целостность БД нарушена: {result[0]}"
+            
+            # Проверяем внешние ключи
+            cursor.execute("PRAGMA foreign_key_check")
+            foreign_key_errors = cursor.fetchall()
+            
+            if foreign_key_errors:
+                return False, f"Найдены ошибки внешних ключей: {foreign_key_errors}"
+            
+            # Проверяем размер БД
+            db_size = os.path.getsize(DB_NAME) / (1024 * 1024)  # МБ
+            if db_size > 100:  # Предупреждение если БД больше 100 МБ
+                print(f"⚠️ База данных большая: {db_size:.1f} МБ")
+            
+            print("✅ Проверка целостности БД пройдена успешно")
+            return True, "OK"
+            
+    except Exception as e:
+        error_msg = f"Ошибка при проверке целостности БД: {e}"
+        print(f"❌ {error_msg}")
+        return False, error_msg
+
 
 def init_db():
     with get_connection() as conn:
@@ -72,7 +109,8 @@ def init_db():
                 status TEXT,
                 created_at DATETIME DEFAULT (datetime('now', 'localtime')),
                 reminder_sent BOOLEAN DEFAULT 0,
-                review_request_sent BOOLEAN DEFAULT 0
+                review_request_sent BOOLEAN DEFAULT 0,
+                last_admin_notification DATETIME
             )
         """)
         
@@ -770,6 +808,11 @@ def migrate_database():
                 cursor.execute("ALTER TABLE applications ADD COLUMN review_request_sent BOOLEAN DEFAULT 0")
                 print("✅ Добавлена колонка review_request_sent в таблицу applications")
             
+            # Проверяем существование колонки last_admin_notification в applications
+            if 'last_admin_notification' not in columns:
+                cursor.execute("ALTER TABLE applications ADD COLUMN last_admin_notification DATETIME")
+                print("✅ Добавлена колонка last_admin_notification в таблицу applications")
+            
             # Проверяем существование индексов
             cursor.execute("PRAGMA index_list(applications)")
             existing_indexes = [row[1] for row in cursor.fetchall()]
@@ -945,4 +988,29 @@ def reset_review_request_status(app_id):
             SET review_request_sent = 0 
             WHERE id = ?
         """, (app_id,))
+        conn.commit()
+
+def can_send_admin_notification(app_id):
+    """Проверяет, можно ли отправить уведомление админу (не чаще раза в 24 часа)"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT last_admin_notification FROM applications WHERE id = ?", (app_id,))
+        result = cursor.fetchone()
+        
+        if not result or not result[0]:
+            return True
+        
+        last_notification = datetime.fromisoformat(result[0])
+        time_diff = datetime.now() - last_notification
+        
+        return time_diff.total_seconds() >= 24 * 3600  # 24 часа в секундах
+
+def mark_admin_notification_sent(app_id):
+    """Отмечает, что уведомление админу было отправлено"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE applications SET last_admin_notification = datetime('now', 'localtime') WHERE id = ?", 
+            (app_id,)
+        )
         conn.commit()

@@ -2,7 +2,7 @@
 from telebot import types
 import utils.menu as menu
 from data.db import (
-    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, get_last_contact_time, add_contact, update_application, delete_application_by_tg_id, get_reviews_for_publication_with_deleted
+    get_application_by_tg_id, format_date_for_display, get_active_courses, get_cancelled_count_by_tg_id, get_finished_count_by_tg_id, get_all_archive, archive_application, get_last_contact_time, add_contact, update_application, delete_application_by_tg_id, get_reviews_for_publication_with_deleted, can_send_admin_notification, mark_admin_notification_sent
 )
 from utils.logger import log_user_action, log_error, setup_logger
 from state.users import get_user_data, set_user_data, update_user_data, clear_user_data
@@ -89,8 +89,39 @@ def register(bot, logger):
         app_id, tg_id, parent_name, student_name, age, contact, course, lesson_date, lesson_link, status, created_at, reminder_sent = application
         
         if not lesson_date:
-            bot.send_message(chat_id, "⏳ Ваша заявка обрабатывается. Ожидайте назначения даты занятия.", reply_markup=menu.get_appropriate_menu(user.id))
-            log_user_action(logger, user.id, "MY_LESSON_PENDING", f"Course: {course}, Status: {status}")
+            # Для статуса "Ожидает" показываем подробную информацию с кнопками действий
+            formatted_created = format_date_for_display(created_at)
+            
+            # Формируем сообщение с информацией о заявке
+            application_text = (
+                f"📋 <b>Ваша заявка:</b>\n\n"
+                f"🆔 <b>Номер:</b> #{app_id}\n"
+                f"👤 <b>Родитель:</b> {parent_name}\n"
+                f"🧒 <b>Ученик:</b> {student_name}\n"
+                f"🎂 <b>Возраст:</b> {age}\n"
+                f"📘 <b>Курс:</b> {course}\n"
+                f"📞 <b>Контакт:</b> {contact or 'не указан'}\n"
+                f"📅 <b>Создано:</b> {formatted_created}\n"
+                f"📝 <b>Статус:</b> {status}\n\n"
+                f"⏳ <i>Заявка обрабатывается. Ожидайте назначения даты занятия.</i>"
+            )
+            
+            # Создаем клавиатуру с кнопками действий
+            markup = types.InlineKeyboardMarkup()
+            markup.row(
+                types.InlineKeyboardButton("✏️ Редактировать", callback_data="edit_application"),
+                types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_application")
+            )
+            
+            # Проверяем, можно ли отправить уведомление админу
+            from data.db import can_send_admin_notification
+            if can_send_admin_notification(app_id):
+                markup.add(types.InlineKeyboardButton("🔔 Напомнить админу", callback_data="notify_admin"))
+            else:
+                markup.add(types.InlineKeyboardButton("⏰ Уведомление отправлено", callback_data="notification_sent"))
+            
+            bot.send_message(chat_id, application_text, parse_mode="HTML", reply_markup=markup)
+            log_user_action(logger, user.id, "MY_LESSON_PENDING_DETAILED", f"Course: {course}, Status: {status}")
             return
         
         # Форматируем дату для отображения
@@ -377,6 +408,74 @@ def register(bot, logger):
         chat_id = call.message.chat.id
         clear_user_data(chat_id)  # Очищаем состояние
         bot.send_message(chat_id, "Отмена отмены заявки.", reply_markup=menu.get_appropriate_menu(call.from_user.id))
+
+    @bot.callback_query_handler(func=lambda c: c.data == "notify_admin")
+    def handle_notify_admin(call):
+        """Обработчик кнопки 'Напомнить админу'"""
+        chat_id = call.message.chat.id
+        
+        # Проверка безопасности
+        security_ok, error_msg = check_user_security(call.from_user.id, "notify_admin")
+        if not security_ok:
+            bot.answer_callback_query(call.id, f"🚫 {error_msg}")
+            return
+        
+        # Получаем данные заявки
+        app = get_application_by_tg_id(str(chat_id))
+        if not app:
+            bot.answer_callback_query(call.id, "❌ Заявка не найдена")
+            return
+        
+        app_id = app[0]
+        
+        # Проверяем, можно ли отправить уведомление
+        if not can_send_admin_notification(app_id):
+            bot.answer_callback_query(call.id, "⏰ Уведомление уже отправлено недавно")
+            return
+        
+        try:
+            # Отправляем уведомление админу
+            admin_msg = (
+                f"🔔 <b>Напоминание о заявке!</b>\n\n"
+                f"🆔 <b>Заявка:</b> #{app_id}\n"
+                f"👤 <b>Родитель:</b> {app[2]}\n"
+                f"🧒 <b>Ученик:</b> {app[3]} ({app[4]} лет)\n"
+                f"📘 <b>Курс:</b> {app[6]}\n"
+                f"📞 <b>Контакт:</b> {app[5] or 'не указан'}\n"
+                f"📅 <b>Создано:</b> {format_date_for_display(app[10])}\n\n"
+                f"<i>Пользователь просит рассмотреть заявку</i>"
+            )
+            
+            bot.send_message(ADMIN_ID, admin_msg, parse_mode="HTML")
+            
+            # Отмечаем, что уведомление отправлено
+            mark_admin_notification_sent(app_id)
+            
+            # Обновляем кнопку
+            markup = types.InlineKeyboardMarkup()
+            markup.row(
+                types.InlineKeyboardButton("✏️ Редактировать", callback_data="edit_application"),
+                types.InlineKeyboardButton("❌ Отменить", callback_data="cancel_application")
+            )
+            markup.add(types.InlineKeyboardButton("⏰ Уведомление отправлено", callback_data="notification_sent"))
+            
+            bot.edit_message_reply_markup(
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=markup
+            )
+            
+            bot.answer_callback_query(call.id, "✅ Уведомление отправлено админу")
+            log_user_action(logger, call.from_user.id, "admin_notification_sent", f"application: {app_id}")
+            
+        except Exception as e:
+            bot.answer_callback_query(call.id, "❌ Ошибка при отправке уведомления")
+            log_error(logger, e, f"Error sending admin notification for user {chat_id}")
+
+    @bot.callback_query_handler(func=lambda c: c.data == "notification_sent")
+    def handle_notification_sent(call):
+        """Обработчик кнопки 'Уведомление отправлено' (информационная)"""
+        bot.answer_callback_query(call.id, "⏰ Уведомление уже отправлено. Повторно можно отправить через 24 часа")
     
     @bot.callback_query_handler(func=lambda call: call.data.startswith("course_info:"))
     def show_course_info(call):

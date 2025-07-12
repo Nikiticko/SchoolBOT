@@ -306,6 +306,13 @@ def register_admin_actions(bot, logger):
             if success:
                 bot.edit_message_text("✅ Заявка отменена и архивирована.", chat_id, msg_id)
                 bot.send_message(chat_id, "✅ Заявка отменена.", reply_markup=menu.get_admin_menu())
+                # Уведомление пользователю
+                tg_id = app[1]
+                try:
+                    bot.send_message(int(tg_id), f"⚠️ Ваша заявка была отменена администратором.\nПричина: {reason}\nВы можете подать новую заявку, если хотите.")
+                    logger.info(f"Notification sent to user {tg_id} about application cancellation by admin")
+                except Exception as e:
+                    logger.error(f"Failed to notify user {tg_id} about application cancellation: {e}")
                 logger.info(f"Admin {user_id} cancelled application {app_id} with reason: {reason}")
             else:
                 bot.send_message(chat_id, "❌ Не удалось архивировать заявку. Попробуйте позже.")

@@ -360,6 +360,23 @@ def register(bot, logger):
                 course=data["course"]
             )
             bot.send_message(chat_id, "✅ Ваша заявка отправлена!", reply_markup=get_appropriate_menu(chat_id))
+            
+            # Уведомление админу о новой заявке
+            try:
+                admin_msg = (
+                    f"🆕 <b>Новая заявка!</b>\n\n"
+                    f"👤 <b>Родитель:</b> {data['parent_name']}\n"
+                    f"🧒 <b>Ученик:</b> {data['student_name']}\n"
+                    f"🎂 <b>Возраст:</b> {data['age']}\n"
+                    f"📘 <b>Курс:</b> {data['course']}\n"
+                    f"📞 <b>Контакт:</b> {data.get('contact', 'не указан')}\n"
+                    f"🆔 <b>ID пользователя:</b> {chat_id}"
+                )
+                bot.send_message(ADMIN_ID, admin_msg, parse_mode="HTML")
+                logger.info(f"Admin notification sent for new application from user {chat_id}")
+            except Exception as notify_error:
+                logger.error(f"Failed to send admin notification for user {chat_id}: {notify_error}")
+            
             clear_user_data(chat_id)
             logger.info(f"User {chat_id} submitted application")
             
