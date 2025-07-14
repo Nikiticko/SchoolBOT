@@ -52,7 +52,6 @@ def format_date_for_display(dt):
 def get_connection():
     import os
     path = os.path.abspath(DB_NAME)
-    print(f"🛠 Путь к базе, которую использует бот: {path}")
     return sqlite3.connect(DB_NAME)
 
 def check_database_integrity():

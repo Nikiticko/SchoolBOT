@@ -23,13 +23,11 @@ from handlers import admin
 from handlers.users import commands, registration, reviews
 from handlers.admin import register_all_admin_handlers
 from state.users import cleanup_expired_registrations
-import os
 import threading
 import time
 import signal
 import sys
 import telebot
-os.system('cls || clear')
 
 # Настройка логирования
 logger = setup_logger('bot')
