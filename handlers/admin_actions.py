@@ -222,6 +222,10 @@ def register_admin_actions(bot, logger):
             if not app:
                 bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
                 return
+            # Проверяем только по статусу
+            if app[9] != "Назначено":
+                bot.send_message(chat_id, "❌ Завершить можно только заявку в статусе 'Назначено'.")
+                return
 
             success = archive_application(app_id, cancelled_by="admin", comment=comment, archived_status="Завершено")
 
@@ -300,6 +304,10 @@ def register_admin_actions(bot, logger):
             if not app:
                 bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
                 return
+            # Проверяем только по статусу
+            if app[9] != "Ожидает":
+                bot.send_message(chat_id, "❌ Отменить можно только заявку в статусе 'Ожидает'.")
+                return
 
             success = archive_application(app_id, cancelled_by="admin", comment=reason, archived_status="Заявка отменена")
 
@@ -361,6 +369,10 @@ def register_admin_actions(bot, logger):
             app = get_application_by_id(app_id)
             if not app:
                 bot.send_message(chat_id, "⚠️ Ошибка: заявка не найдена.")
+                return
+            # Проверяем только по статусу
+            if app[9] != "Назначено":
+                bot.send_message(chat_id, "❌ Отменить урок можно только для заявки в статусе 'Назначено'.")
                 return
 
             success = archive_application(app_id, cancelled_by="admin", comment=reason, archived_status="Урок отменён")

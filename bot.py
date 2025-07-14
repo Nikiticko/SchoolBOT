@@ -270,6 +270,7 @@ def fallback_handler(message):
 # Логируем запуск бота
 log_bot_startup(logger)
 
+
 # Запуск бота с улучшенной обработкой ошибок
 try:
     logger.info("🚀 Starting bot polling...")
